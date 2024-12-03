@@ -30,6 +30,7 @@ if (!class_exists('retroapi_main')) {
             $this->retroapi_define_constants();
             $this->retroapi_include_files();
             $this->retroapi_load_plugin();
+
         }
         public function retroapi_include_files()
         {
@@ -45,6 +46,7 @@ if (!class_exists('retroapi_main')) {
         public function retroapi_load_plugin() {
             retroapi_plugin::retroapi_init();
         }
+    
     }
     new retroapi_main();
 }

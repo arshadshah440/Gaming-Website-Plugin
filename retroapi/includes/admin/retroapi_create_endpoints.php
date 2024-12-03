@@ -15,12 +15,40 @@ if (!class_exists('retroapi_create_endpoints')) {
     {
         public static function retroapi_init_endpoints()
         {
-            // Register the API endpoint
-            register_rest_route('retroapi/v1', '/get_header_menu', array(
+            // Register the API endpoint for menu
+            register_rest_route('retroapi/v2', '/get_header_menu', array(
                 'methods' => 'POST',
                 'callback' => ['retroapi_endpoints_callbacks', 'get_header_menu'],
-                'permission_callback' => "__return_true",
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
             ));
+
+            // Register the API endpoint for homepage data
+            register_rest_route('retroapi/v2', '/get_homepage_data', array(
+                'methods' => 'GET',
+                'callback' => ['retroapi_endpoints_callbacks', 'get_homepage_data'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
+            // Register the API endpoint for brands data
+            register_rest_route('retroapi/v2', '/brands', array(
+                'methods' => 'GET',
+                'callback' => ['retroapi_endpoints_callbacks', 'get_brands_data'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
+            // Register the API endpoint for testimonial data
+            register_rest_route('retroapi/v2', '/testimonials', array(
+                'methods' => 'GET',
+                'callback' => ['retroapi_endpoints_callbacks', 'get_testimonials_data'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
+        }
+        // Permission callback to check JWT token
+        public static function set_authentication_token()
+        {
+            // Check if the Authorization header is set
+            if (is_user_logged_in()) {
+                return true;
+            }
+            return new WP_Error('rest_forbidden', esc_html__('You cannot access this resource without being logged in.'), array('status' => 401));
         }
     }
 }
