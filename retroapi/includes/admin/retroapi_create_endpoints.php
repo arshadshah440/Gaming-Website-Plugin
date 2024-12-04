@@ -40,11 +40,17 @@ if (!class_exists('retroapi_create_endpoints')) {
                 'callback' => ['retroapi_endpoints_callbacks', 'get_testimonials_data'],
                 'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
             ));
+            // Register the API endpoint for product filteration
+            register_rest_route('retroapi/v2', '/filter_products', array(
+                'methods' => 'GET',
+                'callback' => ['retroapi_endpoints_callbacks', 'filter_products_api_callback'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
         }
         // Permission callback to check JWT token
         public static function set_authentication_token()
         {
-            // Check if the Authorization header is set
+            // Check if thewp_send_json_error( $data:mixed|null, $status_code:integer|null, $options:integer )
             if (is_user_logged_in()) {
                 return true;
             }
