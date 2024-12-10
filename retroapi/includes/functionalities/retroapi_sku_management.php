@@ -37,7 +37,7 @@ if (!class_exists('retroapi_sku_management')) {
                 $color = self::get_first_term_of_attribute($post_id, 'pa_color',);
                 $model_variant = self::get_first_term_of_attribute($post_id, 'pa_variant',);
 
-                $sku = $pa_platform . '-' . $product_type . '-' . $model_variant . '-' . $pa_condition . '-' . $color . '-' . $post_id;
+                $sku = $pa_platform . $product_type . $model_variant . $pa_condition  . $color  . $post_id;
 
                 // Set the SKU
                 $product->set_sku($sku);
@@ -71,7 +71,9 @@ if (!class_exists('retroapi_sku_management')) {
                         $term_id = $terms[0]; // Get the first term ID
                         // Get the custom field value of the term
                         $custom_field_value = get_term_meta($term_id, "term_abbreviation", true);
-                        return $custom_field_value;
+                        if (!empty($custom_field_value)) {
+                            return $custom_field_value . '-';
+                        }
                     }
                 }
             }
