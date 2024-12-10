@@ -132,6 +132,130 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             return rest_ensure_response($response);
         }
 
+        /**
+         * Callback function to handle storing product IDs
+         *
+         * @param WP_REST_Request $request Full details about the request
+         * @return WP_REST_Response|WP_Error Response object on success, or WP Error on failure
+         */
+        public static function store_user_viewed_products(WP_REST_Request $request)
+        {
+            // Get the user ID from the request
+            $user_id = absint($request->get_param('user_id'));
+
+            // Validate that the user exists
+            $user = get_userdata($user_id);
+            if (!$user) {
+                return new WP_Error(
+                    'invalid_user',
+                    'User does not exist',
+                    array('status' => 404)
+                );
+            }
+
+            // Validate input
+            $product_ids = $request->get_param('product_ids');
+
+            // Convert to array if not already an array
+            if (!is_array($product_ids)) {
+                // Try to split if it's a string with comma or other separators
+                if (is_string($product_ids)) {
+                    // Split by comma, space, or semicolon
+                    $product_ids = preg_split('/[\s,;]+/', $product_ids, -1, PREG_SPLIT_NO_EMPTY);
+                } elseif (is_numeric($product_ids)) {
+                    // If it's a single number, wrap it in an array
+                    $product_ids = array($product_ids);
+                } else {
+                    // If we can't convert, return an error
+                    return new WP_Error(
+                        'invalid_input',
+                        'Product IDs must be an array, comma-separated string, or numeric value',
+                        array('status' => 400)
+                    );
+                }
+            }
+
+            // Sanitize product IDs (ensure they are positive integers)
+            $sanitized_product_ids = array_map('absint', $product_ids);
+
+            // Remove any zero values that might have been created by sanitization
+            $sanitized_product_ids = array_filter($sanitized_product_ids);
+
+            // Check if any valid product IDs remain
+            if (empty($sanitized_product_ids)) {
+                return new WP_Error(
+                    'invalid_products',
+                    'No valid product IDs provided',
+                    array('status' => 400)
+                );
+            }
+
+            // Check if products exist (uncomment if needed)
+            $verified_products = [];
+            foreach ($sanitized_product_ids as $product_id) {
+                if (wc_get_product($product_id)) {
+                    $verified_products[] = $product_id;
+                }
+            }
+
+            // Retrieve products to verify and return
+            $existing_product_ids = get_user_meta($user_id, 'user_saved_product_ids', true);
+
+            // Ensure existing_product_ids is an array (it might be an empty string on first use)
+            $existing_product_ids = is_array($existing_product_ids) ? $existing_product_ids : array();
+
+            // Merge and deduplicate product IDs
+            $merged_product_ids = array_values(array_unique(
+                array_merge($existing_product_ids, $verified_products)
+            ));
+            // Store the product IDs in user meta
+            $result = update_user_meta($user_id, 'user_saved_product_ids', $merged_product_ids);
+
+            // Check if update was successful
+            if ($result === false) {
+                return new WP_Error(
+                    'update_failed',
+                    'Failed to update product IDs',
+                    array('status' => 500)
+                );
+            }
+
+            // Retrieve products to verify and return
+            $saved_products = get_user_meta($user_id, 'user_saved_product_ids', true);
+
+            // Return successful response
+            return rest_ensure_response(array(
+                'message' => 'Product IDs successfully stored',
+                'user_id' => $user_id,
+                'saved_products' => $saved_products,
+            ));
+        }
+
+        // callback function to get viewed products by user
+        public static function get_user_viewed_products(WP_REST_Request $request)
+        {
+            // Get the user ID from the request
+            $user_id = absint($request->get_param('user_id'));
+
+            // Validate that the user exists
+            $user = get_userdata($user_id);
+            if (!$user) {
+                return new WP_Error(
+                    'invalid_user',
+                    'User does not exist',
+                    array('status' => 404)
+                );
+            }
+
+            // Retrieve products to verify and return
+            $viewed_products = get_user_meta($user_id, 'user_saved_product_ids', true);
+
+            // Return successful response
+            return rest_ensure_response(array(
+                'user_id' => $user_id,
+                'viewed_products' => $viewed_products,
+            ));
+        }
 
         public static function filter_products_api_callback(WP_REST_Request $request)
         {

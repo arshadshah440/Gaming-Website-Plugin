@@ -46,6 +46,20 @@ if (!class_exists('retroapi_create_endpoints')) {
                 'callback' => ['retroapi_endpoints_callbacks', 'filter_products_api_callback'],
                 'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
             ));
+
+            // Register the API endpoint for viewed products by user storing
+            register_rest_route('retroapi/v2', '/set_user_viewed_products', array(
+                'methods' => 'POST',
+                'callback' => ['retroapi_endpoints_callbacks', 'store_user_viewed_products'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
+
+            // Register the API endpoint for viewed products by user
+            register_rest_route('retroapi/v2', '/get_user_viewed_products', array(
+                'methods' => 'GET',
+                'callback' => ['retroapi_endpoints_callbacks', 'get_user_viewed_products'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
         }
         // Permission callback to check JWT token
         public static function set_authentication_token()
