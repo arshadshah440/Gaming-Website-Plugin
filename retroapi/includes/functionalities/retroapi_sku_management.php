@@ -22,10 +22,19 @@ if (!class_exists('retroapi_sku_management')) {
         public static function init()
         {
             add_action('save_post', [__CLASS__, 'assign_sku_on_product_save'], 10, 2);
+            add_action('edited_term', [__CLASS__, 'refresh_frontend'], 10, 3);
+            add_action('create_term', [__CLASS__, 'refresh_frontend'], 10, 3);
+            add_action('delete_term', [__CLASS__, 'refresh_frontend'], 10, 3);
+            add_action('woocommerce_attribute_updated',[__CLASS__, 'refresh_frontend'], 10, 2);
+            add_action('woocommerce_attribute_deleted',[__CLASS__, 'refresh_frontend'], 10, 2);
+            add_action('woocommerce_attribute_added',[__CLASS__, 'refresh_frontend'], 10, 2);
+
+
         }
         public static function assign_sku_on_product_save($post_id, $post)
         {
             // Check if the product already has an SKU, to prevent overwriting
+            
             $product = wc_get_product($post_id);
 
             if ($product) {
@@ -42,9 +51,8 @@ if (!class_exists('retroapi_sku_management')) {
                 // Set the SKU
                 $product->set_sku($sku);
                 $product->save(); // Save the product to update the SKU        
-
-
             }
+            self::refresh_frontend();
         }
         // Function to get the first term of a specific attribute
         public static function get_first_term_of_attribute($product_id, $attribute_slug)
@@ -79,6 +87,15 @@ if (!class_exists('retroapi_sku_management')) {
             }
 
             return '';
+        }
+        public static function refresh_frontend()
+        {
+            // Make the POST request
+            $response = wp_remote_post('https://retrofam-dev.vercel.app/api/revalidate');
+
+            if (is_wp_error($response)) {
+                error_log('API POST request failed: ' . $response->get_error_message());
+            }
         }
     }
 }

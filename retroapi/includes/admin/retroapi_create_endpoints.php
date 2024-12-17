@@ -62,13 +62,17 @@ if (!class_exists('retroapi_create_endpoints')) {
             ));
         }
         // Permission callback to check JWT token
-        public static function set_authentication_token()
+        public static function set_authentication_token(WP_REST_Request $request)
         {
             // Check if thewp_send_json_error( $data:mixed|null, $status_code:integer|null, $options:integer )
-            if (is_user_logged_in()) {
-                return true;
+            $api_key = $request->get_header('Authorization'); // Extract API key from the Authorization header
+            $stored_key = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczovL2Rldi5yZXRyb2ZhbS5jb20iLCJpYXQiOjE3MzMyMzcyNzksIm5iZiI6MTczMzIzNzI3OSwiZXhwIjoxNzMzODQyMDc5LCJkYXRhIjp7InVzZXIiOnsiaWQiOiIxIn19fQ.8qO5lcgAolmKvs_YpdsAaG2n_qaWLeSaqEPBf9H2cA8'; // Retrieve stored API key
+
+            if (empty($api_key) || $api_key !== 'Bearer ' . $stored_key) {
+                return new WP_Error('rest_forbidden', 'Invalid or missing API key', ['status' => 403]);
             }
-            return new WP_Error('rest_forbidden', esc_html__('You cannot access this resource without being logged in.'), array('status' => 401));
+
+            return true; // Proceed if the key is valid
         }
     }
 }
