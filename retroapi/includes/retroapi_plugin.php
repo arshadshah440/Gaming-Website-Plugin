@@ -24,5 +24,7 @@ if (!class_exists('retroapi_plugin')) {
         {
             retroapi_endpoints::retroapi_init_endpoints();
         }
+    
+
     }
 }

@@ -148,6 +148,12 @@ if (!class_exists('retroapi_create_endpoints')) {
                 'callback' => ['retroapi_endpoints_callbacks', 'retrovgame_get_tax_and_shipping'],
                 'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
             ));
+              // Register the API endpoint tax and shipping details  endpoint
+              register_rest_route('retroapi/v2', '/get_category_details_by_id', array(
+                'methods' => 'GET',
+                'callback' => ['retroapi_endpoints_callbacks', 'retrovgame_get_category_details_by_id'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
         }
         // Permission callback to check JWT token
         public static function set_authentication_token(WP_REST_Request $request)
