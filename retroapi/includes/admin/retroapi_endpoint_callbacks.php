@@ -2174,5 +2174,128 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 ));
             }
         }
+
+        // get the single post details from the id 
+        public static function retrovgame_get_singlepost_details_by_id(WP_REST_Request $request)
+        {
+            $post_id = $request->get_param('id');
+            $post_slug = $request->get_param('slug');
+
+            // Fetch post by ID or slug
+            if ($post_id) {
+                $post = get_post($post_id);
+            } elseif ($post_slug) {
+                $post = get_page_by_path($post_slug, OBJECT, 'post');
+            } else {
+                return new WP_Error('missing_param', 'Post ID or Slug is required', ['status' => 400]);
+            }
+
+            if (!$post) {
+                return new WP_Error('no_post', 'Invalid Post ID or Slug', ['status' => 404]);
+            }
+
+            // Get fully rendered post content
+            $content = apply_filters('the_content', $post->post_content);
+
+            // Get theme styles and Gutenberg styles
+            $styles = '';
+
+            // Get theme's main stylesheet
+            $theme_stylesheet = get_stylesheet_directory() . '/style.css';
+            if (file_exists($theme_stylesheet)) {
+                $styles .= file_get_contents($theme_stylesheet);
+            }
+
+            // Get Gutenberg block styles
+            $gutenberg_css = includes_url('css/dist/block-library/style.min.css'); // Core styles
+            $styles .= file_get_contents(ABSPATH . wp_parse_url($gutenberg_css, PHP_URL_PATH));
+
+            // Get ACF fields
+            $acf_fields = function_exists('get_fields') ? get_fields($post->ID) : [];
+            $acf_fields = self::enhance_acf_fields($acf_fields);
+
+            // Get related posts (based on the same category)
+            $related_posts = [];
+            $categories = get_the_category($post->ID);
+            if (!empty($categories)) {
+                $category_ids = wp_list_pluck($categories, 'term_id');
+                $related_posts_query = new WP_Query(array(
+                    'post_type'      => 'post',
+                    'posts_per_page' => 5, // Number of related posts to fetch
+                    'post__not_in'   => array($post->ID), // Exclude the current post
+                    'category__in'   => $category_ids, // Posts in the same category
+                    'orderby'        => 'rand', // Random order
+                ));
+
+                if ($related_posts_query->have_posts()) {
+                    while ($related_posts_query->have_posts()) {
+                        $related_posts_query->the_post();
+                        $related_post_id = get_the_ID();
+
+                        // Get author details
+                        $author_id = get_the_author_meta('ID');
+                        $author_name = get_the_author_meta('display_name', $author_id);
+                        $author_profile_image = get_avatar_url($author_id, ['size' => 96]); // Adjust size as needed
+
+                        // Get ACF field value (max_read_time)
+                        $max_read_time = function_exists('get_field') ? get_field('max_read_time', $related_post_id) : null;
+
+                        // Get thumbnail URL
+                        $thumbnail_url = get_the_post_thumbnail_url($related_post_id, 'medium'); // Adjust size as needed
+
+                        $related_posts[] = array(
+                            'id' => $related_post_id,
+                            'title' => get_the_title(),
+                            'permalink' => get_permalink(),
+                            'excerpt' => get_the_excerpt(),
+                            'thumbnail' => $thumbnail_url,
+                            'author' => array(
+                                'name' => $author_name,
+                                'profile_image' => $author_profile_image,
+                            ),
+                            'max_read_time' => $max_read_time, // ACF field value
+                        );
+                    }
+                    wp_reset_postdata(); // Reset the global post data
+                }
+            }
+
+            // get author details 
+            $author_id = $post->post_author;
+            $author_name = get_the_author_meta('display_name', $author_id);
+            $author_profile_image = get_avatar_url($author_id);
+
+
+            return new WP_REST_Response(array(
+                'id'        => $post->ID,
+                'title'     => get_the_title($post->ID),
+                'slug' => get_post_field('post_name', $post->ID),
+                'thumbnail' => get_the_post_thumbnail_url($post->ID, 'full'),
+                'published_date' => get_the_date('Y-m-d H:i:s', $post->ID),
+                'author_details' => array(
+                    'id' => $author_id,
+                    'name' => $author_name,
+                    'profile_image' => $author_profile_image
+                ),
+                'permalink' => get_permalink($post->ID),
+                'acf_data'  => $acf_fields,
+                'related_posts' => $related_posts, // Include related posts in the response
+            ), 200);
+        }
+
+
+        //get website contact details
+        public static function retrovgame_get_website_contact_details(WP_REST_Request $request)
+        {
+            if (function_exists('get_fields')) {
+                $options = get_field('contact_details', 'option'); // Fetch ACF fields from the specific options page
+
+                return new WP_REST_Response(array(
+                    "Success" => true,
+                    "data" => $options
+                ), 200);
+            }
+            return new WP_Error('acf_not_found', 'ACF is not active or available', array('status' => 404));
+        }
     }
 }
