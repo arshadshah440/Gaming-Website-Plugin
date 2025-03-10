@@ -856,7 +856,9 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
                 $count++;
             }
-
+            if (count($response_products) == 0) {
+                $response_products = self::bought_along_fallback_products($validated_products);
+            }
             return new WP_REST_Response([
                 'original_product_ids' => $validated_products,
                 'related_products' => $response_products,
@@ -864,7 +866,62 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         }
 
 
+        public static function bought_along_fallback_products($product_ids)
+        {
+            $product_info = [];
 
+            $args = array(
+                'post_type' => 'product',
+                'posts_per_page' => 8,
+                'post__not_in' => $product_ids, // Exclude the current product
+
+            );
+
+            $related_products = new WP_Query($args);
+
+            if ($related_products->have_posts()) {
+                while ($related_products->have_posts()) {
+                    $related_products->the_post();
+                    // Display product information
+                    $product_id = get_the_ID(); // Replace with your product ID
+                    $product = wc_get_product($product_id);
+
+                    // Get product data
+                    $product_url = get_permalink($product_id);
+                    $category_names = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'names'));
+                    $featured_image = wp_get_attachment_image_src(get_post_thumbnail_id($product_id), 'full');
+                    $total_reviews = get_comments_number($product_id); // Total reviews
+                    $total_rating = $product->get_average_rating(); // Average rating
+
+                    $price_data = [];
+                    if ($product->is_type('variable')) {
+                        // Get price range for variable products
+                        $price_data['min_price'] = $product->get_variation_price('min');
+                        $price_data['max_price'] = $product->get_variation_price('max');
+                    } else {
+                        // Get regular and sale price for simple products
+                        $price_data['regular_price'] = $product->get_regular_price();
+                        $price_data['sale_price'] = $product->get_sale_price();
+                    }
+
+                    // Prepare the product info array
+                    $product_info[] = [
+                        'id'             => $product_id,
+                        'product_type'   => $product->get_type(),
+                        'name'           => $product->get_name(),
+                        'price'          => $price_data,
+                        'description'    => $product->get_description(),
+                        'product_url'    => $product_url,
+                        'categories'     => $category_names,
+                        'featured_image' => $featured_image ? $featured_image[0] : null,
+                        'total_reviews'  => $total_reviews,
+                        'total_rating'   => $total_reviews > 0 ? $total_rating : null,
+                    ];
+                }
+                wp_reset_postdata();
+            }
+            return $product_info;
+        }
         // callback function to get search results
         public static function retrovgame_search(WP_REST_Request $request)
         {
@@ -1296,16 +1353,60 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
             // Apply sorting logic
             if (!empty($sorting)) {
-                if ($sorting == 'price') {
+                global $wpdb;
+
+                if ($sorting == 'price-asc') {
                     $args['orderby'] = 'meta_value_num';
                     $args['meta_key'] = '_price';
                     $args['order'] = 'ASC';
+                } elseif ($sorting == 'price-desc') {
+                    $args['orderby'] = 'meta_value_num';
+                    $args['meta_key'] = '_price';
+                    $args['order'] = 'DESC';
                 } elseif ($sorting == 'oldfirst') {
                     $args['orderby'] = 'date';
                     $args['order'] = 'ASC';
-                } elseif ($sorting == 'newfirst') {
+                } elseif ($sorting == 'new-arrivals') {
                     $args['orderby'] = 'date';
                     $args['order'] = 'DESC';
+                } elseif ($sorting == 'name-asc') { // A-Z Sorting
+                    // For A-Z, sort alphabetic characters first, then special characters
+                    $args['meta_query'] = [
+                        'relation' => 'OR',
+                        [
+                            'key' => '_temp_alpha_sort',
+                            'compare' => 'NOT EXISTS',
+                        ],
+                    ];
+
+                    add_filter('posts_clauses', function ($clauses) use ($wpdb) {
+                        $clauses['orderby'] = "CASE 
+                            WHEN {$wpdb->posts}.post_title REGEXP '^[A-Za-z]' THEN 1
+                            ELSE 2
+                            END ASC, 
+                            {$wpdb->posts}.post_title ASC";
+                        return $clauses;
+                    }, 10, 1);
+                } elseif ($sorting == 'name-desc') { // Z-A Sorting
+                    // For Z-A, sort special characters first, then alphabetic characters in reverse
+                    $args['meta_query'] = [
+                        'relation' => 'OR',
+                        [
+                            'key' => '_temp_alpha_sort',
+                            'compare' => 'NOT EXISTS',
+                        ],
+                    ];
+
+                    add_filter('posts_clauses', function ($clauses) use ($wpdb) {
+                        $clauses['orderby'] = "CASE 
+                            WHEN {$wpdb->posts}.post_title REGEXP '^[A-Za-z]' THEN 2
+                            ELSE 1
+                            END ASC, 
+                            {$wpdb->posts}.post_title DESC";
+                        return $clauses;
+                    }, 10, 1);
+                } elseif ($sorting == 'recommended') { // Recommended Sorting
+                    $args['orderby'] = ['menu_order' => 'ASC', 'date' => 'DESC']; // Sort by menu order, then newest first
                 }
             }
 
@@ -1906,9 +2007,15 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             }
             // Get current session ID
             $variable_product = wc_get_product($variation_id);
+
+            $price = [];
+
+            $price['regular_price'] = $variable_product->get_regular_price();
+            $price['sale_price'] = $variable_product->get_sale_price();
+
             //$regular_price = $variable_product->get_regular_price();
             //$sale_price = $variable_product->get_sale_price();
-            $price = $variable_product->get_price();
+            // $price = $variable_product->get_price();
             // Prepare response
             $response_data = array(
                 'success' => true,
@@ -2293,6 +2400,22 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 return new WP_REST_Response(array(
                     "Success" => true,
                     "data" => $options
+                ), 200);
+            }
+            return new WP_Error('acf_not_found', 'ACF is not active or available', array('status' => 404));
+        }
+
+        public static function retrovgame_cart_exclusive_offer(WP_REST_Request $request)
+        {
+            if (function_exists('get_fields')) {
+                $acf_fields = get_field('cart_discount_data', 'option'); // Fetch ACF fields from the specific options page
+
+                $acf_fields = self::enhance_acf_fields($acf_fields);
+
+
+                return new WP_REST_Response(array(
+                    "Success" => true,
+                    "data" => $acf_fields
                 ), 200);
             }
             return new WP_Error('acf_not_found', 'ACF is not active or available', array('status' => 404));

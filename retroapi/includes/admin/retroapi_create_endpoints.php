@@ -169,6 +169,15 @@ if (!class_exists('retroapi_create_endpoints')) {
                 'callback' => ['retroapi_endpoints_callbacks', 'retrovgame_get_singlepost_details_by_id'],
                 'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
             ));
+
+            
+            // Register the API endpoint cart_exclusive_offer
+            register_rest_route('retroapi/v2', '/cart_exclusive_offer', array(
+                'methods' => 'GET',
+             
+                'callback' => ['retroapi_endpoints_callbacks', 'retrovgame_cart_exclusive_offer'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
         }
         // Permission callback to check JWT token
         public static function set_authentication_token(WP_REST_Request $request)
