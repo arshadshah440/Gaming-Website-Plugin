@@ -35,8 +35,6 @@ if (!class_exists('retroapi_sku_management')) {
             $product = wc_get_product($post_id);
 
             if ($product) {
-
-                // If the product is a variable product, handle variations separately
                 if ($product->is_type('variable')) {
                     // Get all variations of the variable product
                     $variations = $product->get_children();
@@ -54,9 +52,13 @@ if (!class_exists('retroapi_sku_management')) {
                             // Generate the SKU based on variation attributes and product ID
                             $sku = $pa_platform . $product_type . $model_variant . $pa_condition . $color . $post_id;
 
-                            // Set the SKU for the variation
-                            $variation->set_sku($sku);
-                            $variation->save(); // Save the variation to update the SKU        
+                            // Check if SKU is unique before assigning
+                            if (wc_get_product_id_by_sku($sku) === 0) {
+                                $variation->set_sku($sku);
+                                $variation->save(); // Save the variation to update the SKU        
+                            } else {
+                                error_log("Duplicate SKU found: " . $sku . " for variation ID: " . $variation_id);
+                            }
                         }
                     }
                 } else {
@@ -70,15 +72,20 @@ if (!class_exists('retroapi_sku_management')) {
                     // Generate the SKU based on product attributes
                     $sku = $pa_platform . $product_type . $model_variant . $pa_condition . $color . $post_id;
 
-                    // Set the SKU for the main product
-                    $product->set_sku($sku);
-                    $product->save(); // Save the product to update the SKU        
+                    // Check if SKU is unique before assigning
+                    if (wc_get_product_id_by_sku($sku) === 0) {
+                        $product->set_sku($sku);
+                        $product->save(); // Save the product to update the SKU        
+                    } else {
+                        error_log("Duplicate SKU found: " . $sku . " for product ID: " . $post_id);
+                    }
                 }
             }
 
             // Refresh frontend (e.g., API calls or cache clearing)
             self::refresh_frontend();
         }
+
 
         // Function to get the first term of a specific attribute
         public static function get_first_term_of_attribute($product_id, $attribute_slug)
@@ -129,7 +136,7 @@ if (!class_exists('retroapi_sku_management')) {
         public static function refresh_frontend()
         {
             // Make the POST request
-            $response = wp_remote_post('https://retrofam-dev.vercel.app/api/revalidate');
+            $response = wp_remote_post('https://staging.retrofam.com/api/revalidate');
 
             if (is_wp_error($response)) {
                 error_log('API POST request failed: ' . $response->get_error_message());

@@ -15,15 +15,17 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         public static function retrovgame_get_tax_and_shipping($request)
         {
             $params = $request->get_json_params();
-
+            $country = $request->get_param('country');
+            $state = $request->get_param('state');
+            $postcode = $request->get_param('postcode');
             // Validate input parameters
-            if (empty($params['country']) || empty($params['state']) || empty($params['postcode'])) {
+            if (empty($country) || empty($state) || empty($postcode)) {
                 return new WP_Error('missing_params', 'Country, state, and postal code are required.', ['status' => 400]);
             }
 
-            $country = sanitize_text_field($params['country']);
-            $state = sanitize_text_field($params['state']);
-            $postcode = wc_normalize_postcode(wc_clean($params['postcode']));
+            $country = sanitize_text_field($country);
+            $state = sanitize_text_field($state);
+            $postcode = wc_normalize_postcode(wc_clean($postcode));
 
             // Get tax details with proper tax class
             $tax_details = self::get_tax_details($country, $state, $postcode);
@@ -34,10 +36,20 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             return [
                 'success' => true,
                 'tax_details' => $tax_details,
-                'shipping_costs' => $shipping_costs,
+                // 'shipping_costs' => $shipping_costs,
             ];
         }
 
+        // get mega menu or header menu endpoint 
+        public static function retrovgame_get_header_menu_details(WP_REST_Request $request)
+        {
+
+            $header_menu = get_field("header_menu", 'option');
+            return new WP_REST_Response(array(
+                'data' => $header_menu,
+                'status' => 200
+            ), 200);
+        }
         public static function get_tax_details($country, $state, $postcode)
         {
             global $wpdb;
@@ -346,7 +358,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         public static function get_brands_data()
         {
             $brands = get_terms([
-                'taxonomy'   => 'brand',
+                'taxonomy'   => 'product_cat',
                 'hide_empty' => false, // Change to true if you only want terms with posts
             ]);
 
@@ -356,21 +368,33 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
             $response = [];
             foreach ($brands as $brand) {
+                // Get all ACF fields for the term
                 $acf_fields = function_exists('get_fields') ? get_fields('term_' . $brand->term_id) : [];
+                $is_a_brands = $acf_fields['is_a_brands'] ?? '';
 
-                $response[] = [
-                    'id'          => $brand->term_id,
-                    'name'        => $brand->name,
-                    'slug'        => $brand->slug,
-                    'description' => $brand->description,
-                    'count'       => $brand->count,
-                    'link'        => get_term_link($brand),
-                    'acf'         => $acf_fields, // Include ACF fields
-                ];
+                // Only include terms where is_a_brands is 'yes'
+                if ($is_a_brands === 'yes') {
+                    // Get featured image (if available)
+                    $thumbnail_id = get_term_meta($brand->term_id, 'thumbnail_id', true);
+                    $featured_image = $thumbnail_id ? wp_get_attachment_url($thumbnail_id) : '';
+
+                    $response[] = [
+                        'id'          => $brand->term_id,
+                        'name'        => $brand->name,
+                        'slug'        => $brand->slug,
+                        'description' => $brand->description,
+                        'count'       => $brand->count,
+                        'link'        => get_term_link($brand),
+                        'featured_image' => $featured_image,
+                        'acf'         => $acf_fields, // Include all ACF fields
+                    ];
+                }
             }
 
             return rest_ensure_response($response);
         }
+
+
 
         // callback function for getting the testimonials
         public static function get_testimonials_data()
@@ -423,7 +447,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             }
 
             // Prepare the email content
-            $to = 'pigetoj151@pofmagic.com'; // Change this to your desired email address
+            $to = get_option('admin_email');
+
             $email_subject = "New Contact Form Submission: " . $subject;
             $email_message = "
         Name: $name
@@ -453,6 +478,43 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 return new WP_REST_Response('Failed to send the message.', 500);
             }
         }
+        // subscribe now email Callback
+        public static function retrovgame_subscribe_now(WP_REST_Request $request)
+        {
+            // Get the form data from the request
+            $email = sanitize_email($request->get_param('email'));
+
+            // Validate required fields
+            if (empty($email)) {
+                return new WP_REST_Response(array('Error' => 'Enter A valid Email!!', 'status' => 400), 400);
+            }
+
+            // Prepare the email content
+            $to = $email;
+            $email_subject = "Thank You Email Subscription";
+            $message = 'Hi there,<br><br>Thank you for subscribing to our updates. 
+                        Stay tuned for exciting news and offers!<br><br>
+                        <strong>Best Regards,</strong><br>Retrovgames Team';
+
+            // Set email headers correctly
+            $headers = "Content-Type: text/html; charset=UTF-8\r\n";
+            $headers .= "From: admin@retrovgames.com\r\n";
+            $headers .= "Reply-To: admin@retrovgames.com\r\n";
+
+            // Send the email using wp_mail
+            $mail_sent = wp_mail($to, $email_subject, $message, $headers);
+
+            // Check if the email was sent successfully
+            if ($mail_sent) {
+                return new WP_REST_Response(array(
+                    'message' => "Thank you for the subscription",
+                    'status' => 200
+                ), 200);
+            } else {
+                return new WP_REST_Response('Failed to send the message.', 500);
+            }
+        }
+
 
         /**
          * Callback function to handle storing product IDs
@@ -839,7 +901,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                         $price_data['regular_price'] = $product->get_regular_price();
                         $price_data['sale_price'] = $product->get_sale_price();
                     }
-
+                    $attributes_list = self::get_product_attributes_array($product_id);
                     $response_products[] = [
                         'id'             => $product_id,
                         'product_type'   => $product->get_type(),
@@ -851,6 +913,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                         'featured_image' => $featured_image ? $featured_image[0] : null,
                         'total_reviews'  => $total_reviews,
                         'total_rating'   => $total_reviews > 0 ? $total_rating : null,
+                        'attributes' => $attributes_list
                     ];
                 }
 
@@ -903,6 +966,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                         $price_data['regular_price'] = $product->get_regular_price();
                         $price_data['sale_price'] = $product->get_sale_price();
                     }
+                    $attributes_list = self::get_product_attributes_array($product_id);
 
                     // Prepare the product info array
                     $product_info[] = [
@@ -916,6 +980,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                         'featured_image' => $featured_image ? $featured_image[0] : null,
                         'total_reviews'  => $total_reviews,
                         'total_rating'   => $total_reviews > 0 ? $total_rating : null,
+                        'attributes' => $attributes_list
+
                     ];
                 }
                 wp_reset_postdata();
@@ -956,6 +1022,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                         $featured_image = wp_get_attachment_image_src(get_post_thumbnail_id($product->get_id()), 'full');
                         $total_reviews  = $product->get_review_count();
                         $total_rating   = $product->get_average_rating();
+                        $attributes_list = self::get_product_attributes_array($product_id);
 
                         $product_list[] = [
                             'id'             => get_the_ID(),
@@ -969,6 +1036,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                             'total_reviews'  => $total_reviews,
                             'total_rating'   => $total_reviews > 0 ? $total_rating : null,
                             'stock_quantity' => $product->get_stock_quantity(),
+                            'attributes' => $attributes_list
+
                         ];
                     } else {
                         // Default post structure
@@ -990,6 +1059,61 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             }
 
             return rest_ensure_response($product_list);
+        }
+        // callback function to get search results
+        public static function retrovgame_search_autosuggest(WP_REST_Request $request)
+        {
+            global $wpdb;
+            $search_term = sanitize_text_field($request->get_param('search'));
+
+            if (empty($search_term)) {
+                return new WP_REST_Response(['error' => 'No search term provided'], 400);
+            }
+
+            $search_term = '%' . $wpdb->esc_like($search_term) . '%';
+
+            // Custom SQL query to search only in post_title
+            $query = $wpdb->prepare("
+                SELECT ID, post_title 
+                FROM {$wpdb->posts} 
+                WHERE post_type = 'product' 
+                AND post_status = 'publish' 
+                AND post_title LIKE %s 
+                LIMIT 20
+            ", $search_term);
+
+            $results = $wpdb->get_results($query);
+
+            $products = [];
+
+            if (!empty($results)) {
+                foreach ($results as $result) {
+                    $product = wc_get_product($result->ID);
+                    // Fetch price details
+                    $price_data = [];
+                    if ($product->is_type('variable')) {
+                        // Get price range for variable products
+                        $price_data['min_price'] = $product->get_variation_price('min');
+                        $price_data['max_price'] = $product->get_variation_price('max');
+                    } else {
+                        // Get regular and sale price for simple products
+                        $price_data['regular_price'] = $product->get_regular_price();
+                        $price_data['sale_price'] = $product->get_sale_price();
+                    }
+
+                    $products[] = [
+                        'id'    => $product->get_id(),
+                        'name'  => $product->get_name(),
+                        'price'          => $price_data,
+                    ];
+                }
+            }
+
+            $results= [
+                'products' => $products,
+                'total_results' => count($results)
+            ];
+            return new WP_REST_Response($results, 200);
         }
         // public static function elasticsearch_search(WP_REST_Request $request)
         // {
@@ -1276,12 +1400,13 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 'posts_per_page' => $products_per_page,
                 'paged' => $paged,
             ];
+            $optional_tax_queries = [];
 
-            if (!empty($category)) {
+            if (!empty($valid_categories)) {
                 $optional_tax_queries[] = [
                     'taxonomy' => 'product_cat',
                     'field'    => 'id',
-                    'terms'    => $category,
+                    'terms'    => $valid_categories,
                     'operator' => 'IN',
                 ];
             }
@@ -1290,7 +1415,6 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 $args['s'] = $search; // Add the search term to the query
             }
             // Initialize array for optional filters
-            $optional_tax_queries = [];
 
             // Add optional tax queries only if filters are provided
             if (!empty($platform)) {
@@ -1341,7 +1465,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             // If optional filters exist, add them with OR relation
             if (!empty($optional_tax_queries)) {
                 $args['tax_query'][] = [
-                    'relation' => 'OR', // Apply OR relation for optional filters
+                    'relation' => 'AND', // Apply OR relation for optional filters
                     ...$optional_tax_queries, // Spread the filters to the query
                 ];
             }
@@ -1368,6 +1492,10 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                     $args['order'] = 'ASC';
                 } elseif ($sorting == 'new-arrivals') {
                     $args['orderby'] = 'date';
+                    $args['order'] = 'DESC';
+                } elseif ($sorting == 'best-sellers') {
+                    $args['orderby'] = 'meta_value_num';
+                    $args['meta_key'] = 'total_sales';
                     $args['order'] = 'DESC';
                 } elseif ($sorting == 'name-asc') { // A-Z Sorting
                     // For A-Z, sort alphabetic characters first, then special characters
@@ -1435,6 +1563,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
                     // Include the product loop template
                     $product = wc_get_product(get_the_ID());
+                    $related_id = get_the_ID();
                     if ($product) {
                         $featured_image = wp_get_attachment_image_src(get_post_thumbnail_id($related_id), 'full');
                         // Fetch reviews
@@ -1471,6 +1600,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                             $price_data['regular_price'] = $product->get_regular_price();
                             $price_data['sale_price'] = $product->get_sale_price();
                         }
+                        $attributes_list = self::get_product_attributes_array(get_the_ID());
+
                         $product_list[] = [
                             'id'             => get_the_ID(),
                             'product_type'   => $product->get_type(),
@@ -1483,7 +1614,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                             'total_reviews'  => $total_reviews,
                             'total_rating'   => $total_reviews > 0 ? $total_rating : null, // Avoid division if no reviews
                             'stock_quantity' => $product->get_stock_quantity(),
-
+                            'attributes' => $attributes_list,
+                            'total_sales' => get_post_meta(get_the_ID(), 'total_sales', true)
                         ];
                     }
                 }
@@ -1552,6 +1684,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                                 }
                                 $sales_count = self::retro_sold_counter($related_id);
 
+                                $attributes_list = self::get_product_attributes_array($related_id);
                                 $enhanced_data[] = [
                                     'id'             => $related_id,
                                     'product_type'   => $product->get_type(),
@@ -1563,14 +1696,18 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                                     'featured_image' => $featured_image ? $featured_image[0] : null,
                                     'total_reviews'  => $total_reviews,
                                     'total_rating'   => $total_reviews > 0 ? $total_rating : null, // Avoid division if no reviews
-                                    'sold_this_month' => $sales_count
+                                    'sold_this_month' => $sales_count,
+                                    'attributes' => $attributes_list
                                 ];
                             } else {
                                 // If product is not found
                                 $post_type = get_post_type($related_id);
                                 if ($post_type == 'post') {
+                                    $slug = get_post_field('post_name', $related_id);
+
                                     $enhanced_data[] = [
                                         'id'             => $related_id,
+                                        'slug' => $slug,
                                         'title' => get_the_title($related_id),
                                         'url' => get_the_permalink($related_id),
                                         'featured_image' => get_the_post_thumbnail_url($related_id, 'full'),
@@ -1631,6 +1768,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                     $price_data['regular_price'] = $product->get_regular_price();
                     $price_data['sale_price'] = $product->get_sale_price();
                 }
+                $attributes_list = self::get_product_attributes_array($product_ids);
+
                 $product_data = [
                     'id'             => $product_ids,
                     'product_type'   => $product->get_type(),
@@ -1643,6 +1782,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                     'total_reviews'  => $total_reviews,
                     'total_rating'   => $total_reviews > 0 ? $total_rating : null, // Avoid division if no reviews
                     'stock_quantity' => $product->get_stock_quantity(),
+                    'attributes' => $attributes_list
+
 
                 ];
                 return $product_data;
@@ -1681,6 +1822,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
             // Get category page URL
             $category_url = get_term_link($category);
+            $acf_fields = get_fields("term_{$category_id}");
 
             // Prepare category details
             $category_details = [
@@ -1689,8 +1831,9 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 'slug' => $category->slug,
                 'description' => $category->description,
                 'count' => $category->count,
-                'thumbnail' => $thumbnail_url,
+                'featured_image' => $thumbnail_url,
                 'url' => $category_url,
+                'acf_fields' => $acf_fields,
                 'parent_id' => $category->parent,
                 'children' => []
             ];
@@ -1710,6 +1853,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
                 // Get child category URL
                 $child_url = get_term_link($child);
+                $child_acf_fields = get_fields("term_{$child->term_id}");
 
                 $category_details['children'][] = [
                     'id' => $child->term_id,
@@ -1717,9 +1861,11 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                     'slug' => $child->slug,
                     'description' => $child->description,
                     'count' => $child->count,
-                    'thumbnail' => $child_thumbnail_url,
+                    'featured_image' => $child_thumbnail_url,
                     'url' => $child_url,
-                    'parent_id' => $child->parent
+                    'parent_id' => $child->parent,
+                    'acf_fields' => $child_acf_fields
+
                 ];
             }
 
@@ -2419,6 +2565,506 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 ), 200);
             }
             return new WP_Error('acf_not_found', 'ACF is not active or available', array('status' => 404));
+        }
+
+        // api to fetch the product type terms
+        public static function retrovgame_get_product_type_terms(WP_REST_Request $request)
+        {
+            $terms = get_terms(array(
+                'taxonomy'   => 'pa_product-type', // WooCommerce stores attributes with 'pa_' prefix
+                'hide_empty' => false,
+            ));
+
+            if (is_wp_error($terms)) {
+                return new WP_Error('no_terms', 'No terms found', array('status' => 404));
+            }
+
+            $response = array();
+
+            foreach ($terms as $term) {
+                $acf_fields = function_exists('get_fields') ? get_fields($term) : array(); // Fetch ACF fields if available
+
+                $response[] = array(
+                    'id'          => $term->term_id,
+                    'name'        => $term->name,
+                    'description' => $term->description,
+                    'acf'         => $acf_fields, // Includes all ACF fields
+                );
+            }
+            return new WP_REST_Response(array(
+                "Success" => true,
+                "data" => $response
+            ), 200);
+        }
+
+        // api CB to return variation details
+        public static function retrovgame_get_product_variations(WP_REST_Request $request)
+        {
+            $product_id = $request->get_param('product_id');
+            $product = wc_get_product($product_id);
+
+            if (!$product || !$product->is_type('variable')) {
+                return new WP_Error('invalid_product', __('Invalid or non-variable product.', 'shahwptheme'), ['status' => 404]);
+            }
+
+            $variations = [];
+            foreach ($product->get_children() as $variation_id) {
+                $variation = wc_get_product($variation_id);
+                if ($variation) {
+                    $variations[] = [
+                        'id'        => $variation_id,
+                        'price'     => $variation->get_price(),
+                        'attributes' => $variation->get_attributes(),
+                    ];
+                }
+            }
+            return new WP_REST_Response(array(
+                "Success" => true,
+                "data" => $variations
+            ), 200);
+        }
+
+
+        public static function get_product_attributes_array($product_id)
+        {
+            $product = wc_get_product($product_id);
+            $attributes_array = [];
+
+            if ($product) {
+                $attributes = $product->get_attributes();
+
+                foreach ($attributes as $attribute) {
+                    if ($attribute->is_taxonomy()) {
+                        // Get taxonomy-based attributes
+                        $attribute_values = wc_get_product_terms($product_id, $attribute->get_name(), ['fields' => 'names']);
+                    } else {
+                        // Get custom product attributes (stored as an array)
+                        $attribute_values = $attribute->get_options();
+                        if (!is_array($attribute_values)) {
+                            $attribute_values = [$attribute_values]; // Ensure it's always an array
+                        }
+                    }
+
+                    $attributes_array[$attribute->get_name()] = $attribute_values;
+                }
+            }
+
+            return $attributes_array;
+        }
+
+        // recomendation system
+        public static function retrovgame_get_recomended_products(WP_REST_Request $request)
+        {
+            $product_ids = $request->get_param('ids');
+
+            if (empty($product_ids)) {
+                return new WP_Error('invalid_product', 'No product IDs provided', array('status' => 400));
+            }
+
+            // Convert comma-separated values into an array and sanitize
+            $product_ids = array_map('intval', explode(',', $product_ids));
+            $product_ids = array_filter($product_ids); // Remove empty values
+
+            if (empty($product_ids)) {
+                return new WP_Error('invalid_product', 'Invalid product IDs', array('status' => 400));
+            }
+
+            $category_ids = [];
+
+            // Loop through each product and get its categories
+            foreach ($product_ids as $product_id) {
+                if (! get_post_status($product_id)) {
+                    continue; // Skip invalid product IDs
+                }
+
+                $terms = get_the_terms($product_id, 'product_cat');
+
+                if (! empty($terms) && ! is_wp_error($terms)) {
+                    foreach ($terms as $term) {
+                        $category_ids[] = $term->term_id;
+                    }
+                }
+            }
+
+            $category_ids = array_unique($category_ids); // Remove duplicates
+
+            if (empty($category_ids)) {
+                return new WP_Error('no_category', 'No categories found for the given products', array('status' => 404));
+            }
+
+            // Query products with the same categories
+            $args = array(
+                'post_type'      => 'product',
+                'posts_per_page' => 10,
+                'post__not_in'   => $product_ids, // Exclude provided product IDs
+                'tax_query'      => array(
+                    array(
+                        'taxonomy' => 'product_cat',
+                        'field'    => 'term_id',
+                        'terms'    => $category_ids,
+                    ),
+                ),
+            );
+
+            $query = new WP_Query($args);
+
+            $products = [];
+
+            if ($query->have_posts()) {
+                while ($query->have_posts()) {
+                    $query->the_post();
+                    global $product;
+                    $product_id = get_the_ID();
+                    $product_info = self::get_products_by_ids($product_id);
+                    $products[] = $product_info;
+                }
+            }
+
+            wp_reset_postdata();
+
+            return new WP_REST_Response(array(
+                "Success" => true,
+                "recommended_products" => $products
+            ), 200);
+        }
+
+        // get the list of most selling products
+        public static function retrovgame_get_best_seller_products()
+        {
+            $args = array(
+                'post_type'      => 'product',
+                'posts_per_page' => 10, // Change the number of products if needed
+                'meta_key'       => 'total_sales',
+                'orderby'        => 'meta_value_num',
+                'order'          => 'DESC',
+            );
+
+            $query = new WP_Query($args);
+
+            $products = [];
+
+            if ($query->have_posts()) {
+                while ($query->have_posts()) {
+                    $query->the_post();
+                    global $product;
+                    $product_id = get_the_ID();
+                    $product_info = self::get_products_by_ids($product_id);
+                    $products[] = $product_info;
+                }
+            }
+
+            wp_reset_postdata();
+
+            $seller_details =  [
+                'success'      => true,
+                'products'     => $products,
+                'total_pages'  => $query->max_num_pages,
+                'total_posts'  => $query->found_posts,
+            ];
+
+            return new WP_REST_Response($seller_details, 200);
+        }
+
+        // get term data
+        public static function retrovgame_get_product_term_data(WP_REST_Request $request)
+        {
+            $term_id = intval($request->get_param('id'));
+
+            if (empty($term_id) || $term_id <= 0) {
+                return new WP_Error('invalid_id', 'Invalid attribute term ID', array('status' => 400));
+            }
+
+            // Get term data
+            $term = get_term($term_id);
+
+            if (is_wp_error($term) || empty($term)) {
+                return new WP_Error('not_found', 'Attribute term not found', array('status' => 404));
+            }
+
+            // Get ACF fields if ACF is installed
+            $acf_fields = function_exists('get_fields') ? get_fields($term) : [];
+
+            // Prepare response data
+            $response = array(
+                'term_id'     => $term->term_id,
+                'name'        => $term->name,
+                'slug'        => $term->slug,
+                'taxonomy'    => $term->taxonomy,
+                'description' => $term->description,
+                'acf'         => $acf_fields, // Includes ACF fields
+            );
+
+            return rest_ensure_response($response);
+        }
+
+        // fetch the shipping method
+        public static function retrovgame_get_shipping_methods(WP_REST_Request $request)
+        {
+            if (!class_exists('WC_Shipping_Zones')) {
+                return new WP_Error('woocommerce_missing', __('WooCommerce is not installed or activated.', 'shahwptheme'), ['status' => 500]);
+            }
+
+            $zones = WC_Shipping_Zones::get_zones();
+            $response = [];
+
+            foreach ($zones as $zone) {
+                $zone_name = $zone['zone_name'];
+                $zone_id = $zone['zone_id'];
+                $shipping_methods = $zone['shipping_methods'];
+
+                $methods_data = [];
+                $available_methods = [];
+
+                foreach ($shipping_methods as $method) {
+                    $method_id = $method->id;
+                    $method_title = $method->get_title();
+                    $method_enabled = $method->is_enabled();
+                    $method_cost = isset($method->instance_settings['cost']) ? floatval($method->instance_settings['cost']) : 0;
+                    $estimated_delivery = isset($method->instance_settings['estimated_delivery']) ? $method->instance_settings['estimated_delivery'] : 'N/A';
+
+                    if ($method_enabled) {
+                        $methods_data[] = [
+                            'instance_id'  => $method->instance_id,
+                            'id'           => $method->id, // General method type (e.g., flat_rate, free_shipping)
+                            'title'        => $method->title,
+                            'enabled'      => $method->enabled,
+                            'zone_id'      => $zone['id'],
+                            'zone_name'    => $zone['zone_name'],
+                            'cost'         => isset($method->settings['cost']) ? $method->settings['cost'] : 0,
+                            'tax_status'   => isset($method->settings['tax_status']) ? $method->settings['tax_status'] : '',
+                            'estimated_delivery' => $estimated_delivery, // Example custom field
+                        ];
+                        $available_methods[] = $method_title;
+                    }
+                }
+
+                $response[] = [
+                    'zone_id'          => $zone_id,
+                    'zone_name'        => $zone_name,
+                    'available_methods' => $available_methods,
+                    'methods'          => $methods_data,
+                ];
+            }
+
+            return rest_ensure_response($response);
+        }
+
+        /**
+         * Get shipping methods available for a specific country
+         *
+         * @param WP_REST_Request $request
+         * @return WP_REST_Response
+         */
+        public static function retrovgame_get_shipping_methods_using_countrycode($request)
+        {
+            $country_code = strtoupper($request['country']);
+            // Validate country code
+            $countries = WC()->countries->get_countries();
+            if (!isset($countries[$country_code])) {
+                return new WP_REST_Response(array(
+                    'status' => 'error',
+                    'message' => 'Invalid country code'
+                ), 400);
+            }
+
+            $shipping_methods = array();
+            // Get all shipping zones
+            $shipping_zones = WC_Shipping_Zones::get_zones();
+
+            // Loop through each shipping zone
+            foreach ($shipping_zones as $zone_data) {
+                $zone = new WC_Shipping_Zone($zone_data['id']);
+                $zone_locations = $zone->get_zone_locations();
+
+                // Check if this zone applies to the requested country
+                $country_in_zone = false;
+
+                // If there are no locations, this is the "Everywhere" zone
+                if (empty($zone_locations)) {
+                    $country_in_zone = true;
+                } else {
+                    foreach ($zone_locations as $location) {
+                        if ($location->type === 'country' && $location->code === $country_code) {
+                            $country_in_zone = true;
+                            break;
+                        }
+
+                        // Check continent locations using correct method
+                        if ($location->type === 'continent') {
+                            // Get the countries that belong to this continent
+                            $continent_countries = self::get_countries_for_continent($location->code);
+                            if (in_array($country_code, $continent_countries)) {
+                                $country_in_zone = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // If country is in this zone, add its shipping methods
+                if ($country_in_zone) {
+                    $methods = $zone->get_shipping_methods(true); // true = enabled methods only
+                    foreach ($methods as $method) {
+                        $shipping_methods[] = array(
+                            'zone_id' => $zone_data['id'],
+                            'zone_name' => $zone_data['zone_name'],
+                            'method_id' => $method->id,
+                            'instance_id' => $method->instance_id,
+                            'method_title' => $method->get_title(),
+                            'method_description' => $method->get_method_description(),
+                            'settings' => self::get_method_settings($method),
+                        );
+                    }
+                }
+            }
+
+            // Also check the "Rest of the World" zone (always applies unless overridden)
+            $rest_of_world = new WC_Shipping_Zone(0);
+            $worldwide_methods = $rest_of_world->get_shipping_methods(true);
+            foreach ($worldwide_methods as $method) {
+                $shipping_methods[] = array(
+                    'zone_id' => 0,
+                    'zone_name' => 'Rest of the World',
+                    'method_id' => $method->id,
+                    'instance_id' => $method->instance_id,
+                    'method_title' => $method->get_title(),
+                    'method_description' => $method->get_method_description(),
+                    'settings' => self::get_method_settings($method),
+                );
+            }
+
+            return new WP_REST_Response(array(
+                'status' => 'success',
+                'country' => $country_code,
+                'country_name' => $countries[$country_code],
+                'shipping_methods' => $shipping_methods
+            ), 200);
+        }
+
+        /**
+         * Get countries that belong to a specific continent
+         *
+         * @param string $continent_code
+         * @return array
+         */
+        public static function get_countries_for_continent($continent_code)
+        {
+            // Define mapping of continent codes to country codes
+            $continents = array(
+                'AF' => array('AO', 'BF', 'BI', 'BJ', 'BW', 'CD', 'CF', 'CG', 'CI', 'CM', 'CV', 'DJ', 'DZ', 'EG', 'EH', 'ER', 'ET', 'GA', 'GH', 'GM', 'GN', 'GQ', 'GW', 'KE', 'KM', 'LR', 'LS', 'LY', 'MA', 'MG', 'ML', 'MR', 'MU', 'MW', 'MZ', 'NA', 'NE', 'NG', 'RE', 'RW', 'SC', 'SD', 'SH', 'SL', 'SN', 'SO', 'SS', 'ST', 'SZ', 'TD', 'TG', 'TN', 'TZ', 'UG', 'YT', 'ZA', 'ZM', 'ZW'),
+                'AS' => array('AE', 'AF', 'AM', 'AZ', 'BD', 'BH', 'BN', 'BT', 'CC', 'CN', 'CX', 'CY', 'GE', 'HK', 'ID', 'IL', 'IN', 'IO', 'IQ', 'IR', 'JO', 'JP', 'KG', 'KH', 'KP', 'KR', 'KW', 'KZ', 'LA', 'LB', 'LK', 'MM', 'MN', 'MO', 'MV', 'MY', 'NP', 'OM', 'PH', 'PK', 'PS', 'QA', 'SA', 'SG', 'SY', 'TH', 'TJ', 'TL', 'TM', 'TR', 'TW', 'UZ', 'VN', 'YE'),
+                'EU' => array('AD', 'AL', 'AT', 'AX', 'BA', 'BE', 'BG', 'BY', 'CH', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FO', 'FR', 'GB', 'GG', 'GI', 'GR', 'HR', 'HU', 'IE', 'IM', 'IS', 'IT', 'JE', 'LI', 'LT', 'LU', 'LV', 'MC', 'MD', 'ME', 'MK', 'MT', 'NL', 'NO', 'PL', 'PT', 'RO', 'RS', 'RU', 'SE', 'SI', 'SJ', 'SK', 'SM', 'UA', 'VA', 'XK'),
+                'NA' => array('AG', 'AI', 'AW', 'BB', 'BL', 'BM', 'BQ', 'BS', 'BZ', 'CA', 'CR', 'CU', 'CW', 'DM', 'DO', 'GD', 'GL', 'GP', 'GT', 'HN', 'HT', 'JM', 'KN', 'KY', 'LC', 'MF', 'MQ', 'MS', 'MX', 'NI', 'PA', 'PM', 'PR', 'SV', 'SX', 'TC', 'TT', 'US', 'VC', 'VG', 'VI'),
+                'OC' => array('AS', 'AU', 'CK', 'FJ', 'FM', 'GU', 'KI', 'MH', 'MP', 'NC', 'NF', 'NR', 'NU', 'NZ', 'PF', 'PG', 'PN', 'PW', 'SB', 'TK', 'TO', 'TV', 'UM', 'VU', 'WF', 'WS'),
+                'SA' => array('AR', 'BO', 'BR', 'CL', 'CO', 'EC', 'FK', 'GF', 'GY', 'PE', 'PY', 'SR', 'UY', 'VE'),
+                'AN' => array('AQ', 'BV', 'GS', 'HM', 'TF')
+            );
+
+            return isset($continents[$continent_code]) ? $continents[$continent_code] : array();
+        }
+
+        /**
+         * Extract relevant settings from shipping method
+         *
+         * @param WC_Shipping_Method $method
+         * @return array
+         */
+        public static function get_method_settings($method)
+        {
+            $settings = array();
+            // Common settings to extract
+            $setting_keys = array(
+                'title',
+                'cost',
+                'min_amount',
+                'requires',
+                'estimated_delivery', // Our custom field
+            );
+            foreach ($setting_keys as $key) {
+                if (method_exists($method, 'get_option')) {
+                    $value = $method->get_option($key);
+                    if (!empty($value)) {
+                        $settings[$key] = $value;
+                    }
+                }
+            }
+            return $settings;
+        }
+
+        public static function retrovgame_get_page_content(WP_REST_Request $request)
+        {
+            $page_id = $request['id'];
+
+            $post = get_post($page_id);
+            if (!$post || $post->post_type !== 'page') {
+                return new WP_Error('not_found', 'Page not found', array('status' => 404));
+            }
+
+            // Get the fully processed HTML content
+            $html_content = apply_filters('the_content', $post->post_content);
+
+            // Get block editor styles (CSS)
+            $block_css = self::custom_get_gutenberg_styles();
+
+            return rest_ensure_response(array(
+                'id'      => $post->ID,
+                'title'   => get_the_title($post),
+                'html'    => $html_content,
+                'css'     => $block_css
+            ));
+        }
+        /**
+         * Function to get the necessary CSS styles for Gutenberg blocks
+         */
+        public static function custom_get_gutenberg_styles()
+        {
+            ob_start();
+
+            // Enqueue front-end styles for blocks
+            wp_enqueue_style('wp-block-library'); // Core block styles
+            wp_enqueue_style('wp-block-library-theme'); // Theme block styles
+            wp_enqueue_style('global-styles'); // Global styles (if available)
+
+            // Print styles to capture them
+            wp_print_styles();
+
+            return ob_get_clean();
+        }
+        // get shipping method details 
+        public static function retrovgame_get_shipping_method_details(WP_REST_Request $request)
+        {
+            $instance_id = intval($request->get_param('instance_id'));
+
+            // Get all shipping zones
+            $zones = WC_Shipping_Zones::get_zones();
+            $method_details = [];
+
+            foreach ($zones as $zone) {
+                foreach ($zone['shipping_methods'] as $method) {
+                    if ($method->instance_id === $instance_id) {
+                        $estimated_delivery = isset($method->instance_settings['estimated_delivery']) ? $method->instance_settings['estimated_delivery'] : 'N/A';
+
+                        $method_details = [
+                            'instance_id'  => $method->instance_id,
+                            'id'           => $method->id, // General method type (e.g., flat_rate, free_shipping)
+                            'title'        => $method->title,
+                            'enabled'      => $method->enabled,
+                            'zone_id'      => $zone['id'],
+                            'zone_name'    => $zone['zone_name'],
+                            'cost'         => isset($method->settings['cost']) ? $method->settings['cost'] : 0,
+                            'tax_status'   => isset($method->settings['tax_status']) ? $method->settings['tax_status'] : '',
+                            'estimated_delivery' => $estimated_delivery, // Example custom field
+                        ];
+                        break 2;
+                    }
+                }
+            }
+
+            if (empty($method_details)) {
+                return new WP_Error('no_method', 'Shipping method not found', ['status' => 404]);
+            }
+
+            return rest_ensure_response($method_details);
         }
     }
 }

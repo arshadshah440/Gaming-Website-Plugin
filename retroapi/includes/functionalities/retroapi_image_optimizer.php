@@ -1,6 +1,9 @@
 <?php
-// if file is being called directly or not in the wordpress
-if (! defined('ABSPATH')) exit; // Exit if accessed directly
+// Exit if accessed directly
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 /*
  * Package: RetroAPI
  * @subpackage retroapi/admin 
@@ -16,7 +19,7 @@ if (!class_exists('Advanced_AVIF_Converter')) {
             add_filter('wp_handle_upload', [__CLASS__, 'replace_uploaded_image_with_avif'], 10, 2);
             add_filter('upload_mimes', [__CLASS__, 'allow_avif_uploads']);
         }
-
+ 
         public static function replace_uploaded_image_with_avif($upload, $context)
         {
             $file_path = $upload['file']; // Full path of the uploaded file
@@ -57,6 +60,13 @@ if (!class_exists('Advanced_AVIF_Converter')) {
             try {
                 // Create Imagick object
                 $image = new Imagick($source_file);
+
+                // Preserve transparency (if the image has an alpha channel)
+                if ($image->getImageAlphaChannel()) {
+                    $image->setImageAlphaChannel(Imagick::ALPHACHANNEL_ACTIVATE); // Activate alpha channel
+                    $image->setBackgroundColor(new ImagickPixel('transparent')); // Set background to transparent
+                    $image->setImageVirtualPixelMethod(Imagick::VIRTUALPIXELMETHOD_TRANSPARENT); // Handle transparent areas
+                }
 
                 // Set AVIF specific compression parameters
                 $image->setImageFormat('avif');
