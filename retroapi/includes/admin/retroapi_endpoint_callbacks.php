@@ -18,6 +18,12 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             $country = $request->get_param('country');
             $state = $request->get_param('state');
             $postcode = $request->get_param('postcode');
+            $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
+
+            // Switch language using WPML if lang is provided and different from default
+            if ($lang && function_exists('do_action')) {
+                do_action('wpml_switch_language', $lang);
+            }
             // Validate input parameters
             if (empty($country) || empty($state) || empty($postcode)) {
                 return new WP_Error('missing_params', 'Country, state, and postal code are required.', ['status' => 400]);
@@ -28,7 +34,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             $postcode = wc_normalize_postcode(wc_clean($postcode));
 
             // Get tax details with proper tax class
-            $tax_details = self::get_tax_details($country, $state, $postcode);
+            $tax_details = self::get_tax_details($country, $state, $postcode, $lang);
 
             // Get shipping costs
             $shipping_costs = self::get_shipping_costs($country, $state, $postcode);
@@ -43,14 +49,31 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         // get mega menu or header menu endpoint 
         public static function retrovgame_get_header_menu_details(WP_REST_Request $request)
         {
+            $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
+            $default_lang = apply_filters('wpml_default_language', null);
 
+            // Switch language using WPML if lang is provided and different from default
+            if ($lang && function_exists('do_action')) {
+                do_action('wpml_switch_language', $lang);
+            }
+
+            // For ACF option fields, you might need to use the WPML element ID
             $header_menu = get_field("header_menu", 'option');
+
+            // Debug information
+            $debug_info = [
+                'requested_lang' => $lang,
+                'default_lang' => $default_lang,
+                'has_field_value' => !empty($header_menu)
+            ];
+
             return new WP_REST_Response(array(
                 'data' => $header_menu,
+                'debug' => $debug_info, // Remove this in production
                 'status' => 200
             ), 200);
         }
-        public static function get_tax_details($country, $state, $postcode)
+        public static function get_tax_details($country, $state, $postcode, $language)
         {
             global $wpdb;
 
@@ -93,19 +116,33 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                     }
                 }
 
-                // Get tax rate name
+                // Get tax rate name (city fallback, optional)
                 $rate_name_query = $wpdb->prepare(
                     "SELECT name FROM {$wpdb->prefix}woocommerce_tax_rate_locations 
                     WHERE tax_rate_id = %d AND location_type = 'city' LIMIT 1",
                     $rate->tax_rate_id
                 );
-                $rate_name = $wpdb->get_var($rate_name_query);
+                $rate_city = $wpdb->get_var($rate_name_query);
+
+                // Translate the tax rate name
+                $rate_name = !empty($rate->tax_rate_name) ? $rate->tax_rate_name : 'Tax';
+
+                if (function_exists('apply_filters')) {
+                    $rate_name = apply_filters(
+                        'wpml_translate_single_string',
+                        $rate_name,
+                        'woocommerce',
+                        'Tax rate name: ' . $rate_name,
+                        $language
+                    );
+                }
+
                 $postalcodes = self::get_postal_code_by_tax_rate_id($rate->tax_rate_id);
 
                 if (in_array($postcode, $postalcodes)) {
                     $tax_details[] = [
                         'rate_id' => (int) $rate->tax_rate_id,
-                        'name' => !empty($rate->tax_rate_name) ? $rate->tax_rate_name : 'Tax',
+                        'name' => $rate_name,
                         'rate' => (float) $rate->tax_rate,
                         'shipping' => (bool) $rate->tax_rate_shipping,
                         'compound' => (bool) $rate->tax_rate_compound,
@@ -114,7 +151,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                         'country' => $rate->tax_rate_country,
                         'state' => $rate->tax_rate_state,
                         'postcode' => $postcode,
-                        'city' => $rate_name ?: '',
+                        'city' => $rate_city ?: '',
                         'order' => (int) $rate->tax_rate_order
                     ];
                 }
@@ -137,9 +174,21 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 $base_rate = $wpdb->get_row($query);
 
                 if ($base_rate) {
+                    $rate_name = !empty($base_rate->tax_rate_name) ? $base_rate->tax_rate_name : 'Tax';
+
+                    if (function_exists('apply_filters')) {
+                        $rate_name = apply_filters(
+                            'wpml_translate_single_string',
+                            $rate_name,
+                            'woocommerce',
+                            'Tax rate name: ' . $rate_name,
+                            $language
+                        );
+                    }
+
                     $tax_details[] = [
                         'rate_id' => (int) $base_rate->tax_rate_id,
-                        'name' => !empty($base_rate->tax_rate_name) ? $base_rate->tax_rate_name : 'Tax',
+                        'name' => $rate_name,
                         'rate' => (float) $base_rate->tax_rate,
                         'shipping' => (bool) $base_rate->tax_rate_shipping,
                         'compound' => (bool) $base_rate->tax_rate_compound,
@@ -154,6 +203,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
             return $tax_details;
         }
+
         public static function get_postal_code_by_tax_rate_id($tax_rate_id)
         {
             global $wpdb;
@@ -352,7 +402,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
             if ($page) {
                 $acf_fields = function_exists('get_fields') ? get_fields($page->ID) : [];
-                $acf_fields = self::enhance_acf_fields($acf_fields,$language_code);
+                $acf_fields = self::enhance_acf_fields($acf_fields, $language_code);
 
                 $retro_page_data = [
                     'id'             => $page->ID,
@@ -368,8 +418,15 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
 
         // callback function to get the brand taxonomy
-        public static function get_brands_data()
+        public static function get_brands_data(WP_REST_Request $request)
         {
+            // Get language from request
+            $lang = $request->get_param('lang');
+
+            // Switch language using WPML if lang is provided
+            if ($lang && function_exists('do_action')) {
+                do_action('wpml_switch_language', $lang);
+            }
             $brands = get_terms([
                 'taxonomy'   => 'product_cat',
                 'hide_empty' => false, // Change to true if you only want terms with posts
@@ -410,8 +467,14 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
 
         // callback function for getting the testimonials
-        public static function get_testimonials_data()
+        public static function get_testimonials_data(WP_REST_Request $request)
         {
+
+            $lang = $request->get_param('lang');
+            // Switch WPML language if provided
+            if ($lang && function_exists('do_action')) {
+                do_action('wpml_switch_language', $lang);
+            }
             $args = [
                 'post_type'      => 'testimonial',
                 'posts_per_page' => -1, // Get all testimonials
@@ -535,7 +598,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
          * @param WP_REST_Request $request Full details about the request
          * @return WP_REST_Response|WP_Error Response object on success, or WP Error on failure
          */
-        public static function store_user_viewed_products(WP_REST_Request $request)
+        public static function retro_set_user_viewed_products(WP_REST_Request $request)
         {
             // Get the user ID from the request
             $user_id = absint($request->get_param('user_id'));
@@ -591,7 +654,17 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             $verified_products = [];
             foreach ($sanitized_product_ids as $product_id) {
                 if (wc_get_product($product_id)) {
-                    $verified_products[] = $product_id;
+                    // Get all available translations for this product
+                    $translations = apply_filters('wpml_get_element_translations', null, $product_id, 'post_product');
+                    if (!empty($translations)) {
+                        foreach ($translations as $language_code => $translation) {
+                            if ($translation->element_id) {
+                                $verified_products[] = intval($translation->element_id);
+                            }
+                        }
+                    } else {
+                        $verified_products[] = $product_id;
+                    }
                 }
             }
 
@@ -601,7 +674,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             // Ensure existing_product_ids is an array (it might be an empty string on first use)
             $existing_product_ids = is_array($existing_product_ids) ? $existing_product_ids : array();
 
-            // Merge and deduplicate product IDs
+            // Merge and duplicate product IDs
             $merged_product_ids = array_values(array_unique(
                 array_merge($existing_product_ids, $verified_products)
             ));
@@ -613,7 +686,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 return new WP_Error(
                     'update_failed',
                     'Current Product IDs already exists in the viewed list',
-                    array('status' => 500)
+                    array('status' => 400)
                 );
             }
 
@@ -634,7 +707,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
          * @param WP_REST_Request $request Full details about the request
          * @return WP_REST_Response|WP_Error Response object on success, or WP Error on failure
          */
-        public static function store_user_wishlist_products(WP_REST_Request $request)
+        public static function retro_set_user_wishlist_products(WP_REST_Request $request)
         {
             // Get the user ID from the request
             $user_id = absint($request->get_param('user_id'));
@@ -690,7 +763,17 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             $verified_products = [];
             foreach ($sanitized_product_ids as $product_id) {
                 if (wc_get_product($product_id)) {
-                    $verified_products[] = $product_id;
+                    // Get all available translations for this product
+                    $translations = apply_filters('wpml_get_element_translations', null, $product_id, 'post_product');
+                    if (!empty($translations)) {
+                        foreach ($translations as $language_code => $translation) {
+                            if ($translation->element_id) {
+                                $verified_products[] = intval($translation->element_id);
+                            }
+                        }
+                    } else {
+                        $verified_products[] = $product_id;
+                    }
                 }
             }
 
@@ -732,6 +815,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         {
             // Get the user ID from the request
             $user_id = absint($request->get_param('user_id'));
+            $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
 
             // Validate that the user exists
             $user = get_userdata($user_id);
@@ -748,6 +832,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
             $viewed_products_data = [];
             foreach ($viewed_products as $product_id) {
+                $product_id = apply_filters('wpml_object_id', $product_id, 'product', true, $lang);
+
                 $current_product_data = self::get_products_by_ids($product_id);
                 $viewed_products_data[] = $current_product_data;
             }
@@ -765,6 +851,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         {
             // Get the user ID from the request
             $user_id = absint($request->get_param('user_id'));
+            $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
+
 
             // Validate that the user exists
             $user = get_userdata($user_id);
@@ -783,7 +871,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
             $wishlisted_products_data = [];
             foreach ($wishlisted_products as $product_id) {
-                $current_product_data = self::get_products_by_ids($product_id);
+                $original_id = apply_filters('wpml_object_id', $product_id, 'product', true, $lang);
+                $current_product_data = self::get_products_by_ids($original_id);
                 $wishlisted_products_data[] = $current_product_data;
             }
             // Return successful response
@@ -795,22 +884,39 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         }
 
         // get get_products_bought_along callback function
-        public static function get_products_bought_along($request)
+        public static function get_products_bought_along(WP_REST_Request $request)
         {
             // Get product IDs from the request
+            // Get product IDs from the request
             $product_ids = array_map('intval', (array) $request['product_ids']);
+            $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
 
             // Validate product IDs
             $validated_products = [];
             foreach ($product_ids as $product_id) {
                 $product = wc_get_product($product_id);
                 if ($product) {
-                    $validated_products[] = $product_id;
+                    // Get the original product ID (in default language)
+                    $original_id = apply_filters('wpml_object_id', $product_id, 'product', true, apply_filters('wpml_default_language', null));
+
+                    // Now get all translations for this original product
+                    $translations = apply_filters('wpml_get_element_translations', null, $original_id, 'post_product');
+
+                    if (!empty($translations)) {
+                        foreach ($translations as $language_code => $translation) {
+                            if ($translation->element_id && !in_array($translation->element_id, $validated_products)) {
+                                $validated_products[] = $translation->element_id;
+                            }
+                        }
+                    } else {
+                        // If no translations found, at least use the current product
+                        $validated_products[] = $product_id;
+                    }
                 }
             }
 
             if (empty($validated_products)) {
-                return new WP_REST_Response(['error' => 'Invalid Product IDs'], 404);
+                return new WP_REST_Response(['error' => 'Invalid Product IDs', 'validated' => $product_ids, 'lang' => $lang], 404);
             }
 
             // Query completed orders
@@ -876,6 +982,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 if (!$product) continue;
                 $product = wc_get_product($product_id);
                 if ($product) {
+                    $product_id = apply_filters('wpml_object_id', $product_id, 'product', true, $lang);
+
                     $featured_image = wp_get_attachment_image_src(get_post_thumbnail_id($product_id), 'full');
 
                     // Fetch reviews
@@ -1297,6 +1405,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         public static function retrovgame_get_product_by_id(WP_REST_Request $request)
         {
             $product_ids = $request->get_param('product_ids');
+            $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
+
 
             if (!is_array($product_ids) && !empty($product_ids)) {
                 $product_ids = explode(',', $product_ids);
@@ -1312,6 +1422,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
             $products_data = [];
             foreach ($product_ids as $product_id) {
+                $product_id = apply_filters('wpml_object_id', $product_id, 'product', true, $lang);
+
                 $current_product_data = self::get_products_by_ids($product_id);
                 $products_data[] = $current_product_data;
             };
@@ -1335,6 +1447,13 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         public static function retrovgame_get_terms(WP_REST_Request $request)
         {
             $attribute_slugs = ['pa_platform', 'pa_condition', 'pa_genre', 'pa_players', 'pa_product-type'];
+
+            $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
+
+            // Switch language using WPML if lang is provided and different from default
+            if ($lang && function_exists('do_action')) {
+                do_action('wpml_switch_language', $lang);
+            };
 
             $results = [];
 
@@ -1383,6 +1502,9 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             $maxprice = $request->get_param('maxprice') ? intval($request->get_param('maxprice')) : 1;
             $sorting = $request->get_param('sorting') ? sanitize_text_field($request->get_param('sorting')) : '';
             $search = $request->get_param('search') ? sanitize_text_field($request->get_param('search')) : '';
+            // Get the language parameter from the API request
+            $lang = $request->get_param('lang');
+
 
             // if (empty($category) || count($category) <= 0) {
             //     return new WP_REST_Response([
@@ -1410,7 +1532,10 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                     ], 400);
                 }
             }
-
+            // Switch WPML language if provided
+            // if ($lang && function_exists('do_action')) {
+            //     do_action('wpml_switch_language', $lang);
+            // }
             // query arguments
             // Base query args
             $args = [
@@ -1558,11 +1683,18 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             }
 
             // Apply price range filtering
+            // Apply price range filtering
             if ($minprice >= 0 && $maxprice > 0) {
+                // Get current language
+                $current_lang = apply_filters('wpml_current_language', null);
+
+                // Use the correct meta key based on language
+                $price_meta_key = ($current_lang != 'en' && $lang) ? '_price_' . $lang : '_price';
+
                 $args['meta_query'] = [
                     'relation' => 'AND',
                     [
-                        'key'     => '_price',
+                        'key'     => $price_meta_key,
                         'value'   => [$minprice, $maxprice],
                         'compare' => 'BETWEEN',
                         'type'    => 'NUMERIC',
@@ -1581,8 +1713,10 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                     global $product;
 
                     // Include the product loop template
-                    $product = wc_get_product(get_the_ID());
-                    $related_id = get_the_ID();
+                    $related_id = apply_filters('wpml_object_id', get_the_ID(), 'product', true, $lang);
+
+                    $product = wc_get_product($related_id);
+                    // $related_id = get_the_ID();
                     if ($product) {
                         $featured_image = wp_get_attachment_image_src(get_post_thumbnail_id($related_id), 'full');
                         // Fetch reviews
@@ -1619,11 +1753,11 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                             $price_data['regular_price'] = $product->get_regular_price();
                             $price_data['sale_price'] = $product->get_sale_price();
                         }
-                        $attributes_list = self::get_product_attributes_array(get_the_ID());
-                        $sold_this_month = self::retro_sold_counter($product_id);
+                        $attributes_list = self::get_product_attributes_array($related_id);
+                        $sold_this_month = self::retro_sold_counter($related_id);
 
                         $product_list[] = [
-                            'id'             => get_the_ID(),
+                            'id'             => $related_id,
                             'product_type'   => $product->get_type(),
                             'name'           => $product->get_name(),
                             'price'          => $price_data,
@@ -1655,10 +1789,11 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             return new WP_REST_Response([
                 'success' => false,
                 'message' => 'No products found.',
+                'args' => $args
             ], 404);
         }
 
-        private static function enhance_acf_fields($fields,$lang)
+        private static function enhance_acf_fields($fields, $lang)
         {
             foreach ($fields as $field_key => $field_value) {
                 if (is_array($field_value)) {
@@ -1744,7 +1879,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                         $fields[$field_key] = $enhanced_data;
                     } else {
                         // Recursively process nested fields (e.g., group fields)
-                        $fields[$field_key] = self::enhance_acf_fields($field_value,$lang);
+                        $fields[$field_key] = self::enhance_acf_fields($field_value, $lang);
                     }
                 }
             }
@@ -1822,10 +1957,14 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         public static function retrovgame_get_category_details_by_id(WP_REST_Request $request)
         {
             $categoryid = $request->get_param('category_id');
+            $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
+
             if (empty($categoryid) ||  empty(get_the_category_by_ID($categoryid))) {
                 return new WP_Error('Invalid category', array('status' => 500));
             }
-            $category_info = self::get_woocommerce_category_details($categoryid);
+            $original_id = apply_filters('wpml_object_id', $categoryid, 'product_cat', true, $lang);
+
+            $category_info = self::get_woocommerce_category_details($original_id);
 
             return new WP_REST_Response([
                 'success'      => true,
@@ -1914,6 +2053,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             // Get user/session parameters first
             $user_id = $request->get_param('user_id');
             // $session_id = $request->get_param('session_id');
+            $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
 
             // Handle user authentication if user_id is provided
             if ($user_id) {
@@ -2492,7 +2632,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
             // Get ACF fields
             $acf_fields = function_exists('get_fields') ? get_fields($post->ID) : [];
-            $acf_fields = self::enhance_acf_fields($acf_fields,$language_code);
+            $acf_fields = self::enhance_acf_fields($acf_fields, $language_code);
 
             // Get related posts (based on the same category)
             $related_posts = [];
@@ -2585,7 +2725,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             if (function_exists('get_fields')) {
                 $acf_fields = get_field('cart_discount_data', 'option'); // Fetch ACF fields from the specific options page
 
-                $acf_fields = self::enhance_acf_fields($acf_fields,$language_code);
+                $acf_fields = self::enhance_acf_fields($acf_fields, $language_code);
 
 
                 return new WP_REST_Response(array(
@@ -2599,8 +2739,16 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         // api to fetch the product type terms
         public static function retrovgame_get_product_type_terms(WP_REST_Request $request)
         {
+            // Get language from request
+            $lang = $request->get_param('lang');
+
+            // Switch language using WPML if lang is provided
+            if ($lang && function_exists('do_action')) {
+                do_action('wpml_switch_language', $lang);
+            }
+
             $terms = get_terms(array(
-                'taxonomy'   => 'pa_product-type', // WooCommerce stores attributes with 'pa_' prefix
+                'taxonomy'   => 'pa_product-type',
                 'hide_empty' => false,
             ));
 
@@ -2611,26 +2759,32 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             $response = array();
 
             foreach ($terms as $term) {
-                $acf_fields = function_exists('get_fields') ? get_fields($term) : array(); // Fetch ACF fields if available
+                $acf_fields = function_exists('get_fields') ? get_fields($term) : array();
 
                 $response[] = array(
                     'id'          => $term->term_id,
                     'name'        => $term->name,
                     'description' => $term->description,
-                    'acf'         => $acf_fields, // Includes all ACF fields
+                    'acf'         => $acf_fields,
                 );
             }
+
             return new WP_REST_Response(array(
                 "Success" => true,
                 "data" => $response
             ), 200);
         }
 
+
         // api CB to return variation details
         public static function retrovgame_get_product_variations(WP_REST_Request $request)
         {
             $product_id = $request->get_param('product_id');
+            $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
+            $product_id = apply_filters('wpml_object_id', $product_id, 'product', false, $lang);
+
             $product = wc_get_product($product_id);
+            $title = get_the_title($product_id);
 
             if (!$product || !$product->is_type('variable')) {
                 return new WP_Error('invalid_product', __('Invalid or non-variable product.', 'shahwptheme'), ['status' => 404]);
@@ -2642,6 +2796,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 if ($variation) {
                     $variations[] = [
                         'id'        => $variation_id,
+                        'title' => $title,
                         'price'     => $variation->get_price(),
                         'attributes' => $variation->get_attributes(),
                     ];
@@ -2685,6 +2840,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         public static function retrovgame_get_recomended_products(WP_REST_Request $request)
         {
             $product_ids = $request->get_param('ids');
+            $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
 
             if (empty($product_ids)) {
                 return new WP_Error('invalid_product', 'No product IDs provided', array('status' => 400));
@@ -2744,6 +2900,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                     $query->the_post();
                     global $product;
                     $product_id = get_the_ID();
+                    $product_id = apply_filters('wpml_object_id', $product_id, 'product', true, $lang);
                     $product_info = self::get_products_by_ids($product_id);
                     $products[] = $product_info;
                 }
@@ -2758,8 +2915,10 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         }
 
         // get the list of most selling products
-        public static function retrovgame_get_best_seller_products()
+        public static function retrovgame_get_best_seller_products(WP_REST_Request $request)
         {
+            $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
+
             $args = array(
                 'post_type'      => 'product',
                 'posts_per_page' => 10, // Change the number of products if needed
@@ -2777,6 +2936,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                     $query->the_post();
                     global $product;
                     $product_id = get_the_ID();
+                    $product_id = apply_filters('wpml_object_id', $product_id, 'product', true, $lang);
                     $product_info = self::get_products_by_ids($product_id);
                     $products[] = $product_info;
                 }
@@ -2798,6 +2958,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         public static function retrovgame_get_product_term_data(WP_REST_Request $request)
         {
             $term_id = intval($request->get_param('id'));
+            $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
+
 
             if (empty($term_id) || $term_id <= 0) {
                 return new WP_Error('invalid_id', 'Invalid attribute term ID', array('status' => 400));
@@ -2805,6 +2967,8 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
             // Get term data
             $term = get_term($term_id);
+
+
 
             if (is_wp_error($term) || empty($term)) {
                 return new WP_Error('not_found', 'Attribute term not found', array('status' => 404));

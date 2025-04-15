@@ -50,14 +50,14 @@ if (!class_exists('retroapi_create_endpoints')) {
             // Register the API endpoint for viewed products by user storing
             register_rest_route('retroapi/v2', '/set_user_viewed_products', array(
                 'methods' => 'POST',
-                'callback' => ['retroapi_endpoints_callbacks', 'store_user_viewed_products'],
+                'callback' => ['retroapi_endpoints_callbacks', 'retro_set_user_viewed_products'],
                 'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
             ));
 
             // Register the API endpoint for add to whishlist
             register_rest_route('retroapi/v2', '/set_user_wishlist_products', array(
                 'methods' => 'POST',
-                'callback' => ['retroapi_endpoints_callbacks', 'store_user_wishlist_products'],
+                'callback' => ['retroapi_endpoints_callbacks', 'retro_set_user_wishlist_products'],
                 'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
             ));
 
