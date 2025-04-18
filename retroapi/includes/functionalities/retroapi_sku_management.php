@@ -48,16 +48,21 @@ if (!class_exists('retroapi_sku_management')) {
                             $product_type = self::get_first_term_of_attribute($variation_id, 'pa_product-type');
                             $color = self::get_first_term_of_attribute($variation_id, 'pa_color');
                             $model_variant = self::get_first_term_of_attribute($variation_id, 'pa_variant');
+                            $storage = self::get_first_term_of_attribute($variation_id, 'pa_storage');
 
                             // Generate the SKU based on variation attributes and product ID
-                            $sku = $pa_platform . $product_type . $model_variant . $pa_condition . $color . $post_id;
+                            $sku = $pa_platform . $product_type . $model_variant .$storage . $color . $pa_condition . $post_id;
 
                             // Check if SKU is unique before assigning
-                            if (wc_get_product_id_by_sku($sku) === 0) {
-                                $variation->set_sku($sku);
-                                $variation->save(); // Save the variation to update the SKU        
-                            } else {
-                                error_log("Duplicate SKU found: " . $sku . " for variation ID: " . $variation_id);
+                            // Check if SKU is unique before assigning
+                            if (empty($product->get_sku())) {
+                                // Check if the SKU is not already used by another product
+                                if (wc_get_product_id_by_sku($sku) === 0) {
+                                    $variation->set_sku($sku);
+                                    $variation->save(); // Save the product to update the SKU        
+                                } else {
+                                    error_log("Duplicate SKU found: " . $sku . " for product ID: " . $post_id);
+                                }
                             }
                         }
                     }
@@ -73,11 +78,14 @@ if (!class_exists('retroapi_sku_management')) {
                     $sku = $pa_platform . $product_type . $model_variant . $pa_condition . $color . $post_id;
 
                     // Check if SKU is unique before assigning
-                    if (wc_get_product_id_by_sku($sku) === 0) {
-                        $product->set_sku($sku);
-                        $product->save(); // Save the product to update the SKU        
-                    } else {
-                        error_log("Duplicate SKU found: " . $sku . " for product ID: " . $post_id);
+                    if (empty($product->get_sku())) {
+                        // Check if the SKU is not already used by another product
+                        if (wc_get_product_id_by_sku($sku) === 0) {
+                            $product->set_sku($sku);
+                            $product->save(); // Save the product to update the SKU        
+                        } else {
+                            error_log("Duplicate SKU found: " . $sku . " for product ID: " . $post_id);
+                        }
                     }
                 }
             }

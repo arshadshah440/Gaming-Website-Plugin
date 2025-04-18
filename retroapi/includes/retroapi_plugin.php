@@ -118,6 +118,7 @@ if (!class_exists('retroapi_plugin')) {
                     $option = [
                         'name' => $option,
                         'swatch_color' => $swatch_color,
+                        'slug' => $term->slug
                         // 'attribute_type' => $attribute_type
                     ];
                 }

@@ -1694,7 +1694,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 $args['meta_query'] = [
                     'relation' => 'AND',
                     [
-                        'key'     => $price_meta_key,
+                        'key'     => '_price',
                         'value'   => [$minprice, $maxprice],
                         'compare' => 'BETWEEN',
                         'type'    => 'NUMERIC',
@@ -1845,6 +1845,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                                 $attributes_list = self::get_product_attributes_array($related_id);
                                 $enhanced_data[] = [
                                     'id'             => $related_id,
+                                    'slug'           => $product->get_slug(),
                                     'product_type'   => $product->get_type(),
                                     'name'           => $product->get_name(),
                                     'price'          => $price_data,
@@ -1933,6 +1934,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
                 $product_data = [
                     'id'             => $product_ids,
+                    'slug'           => $product->get_slug(),
                     'product_type'   => $product->get_type(),
                     'name'           => $product->get_name(),
                     'price'          => $price_data,
@@ -2560,21 +2562,41 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
         public static function retrovgame_get_faqs(WP_REST_Request $request)
         {
-            // Get all FAQ posts
+            $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
+
+            // Switch language using WPML if lang is provided
+            if ($lang && function_exists('do_action')) {
+                do_action('wpml_switch_language', $lang);
+            }
+
+            // Get all FAQ posts with language argument
             $faq_posts = get_posts([
-                'post_type'      => 'faq',  // The CPT name 'faq'
-                'posts_per_page' => -1,     // Get all posts
-                'post_status'    => 'publish', // Only published posts
+                'post_type'      => 'faq',
+                'posts_per_page' => -1,
+                'post_status'    => 'publish',
+                'suppress_filters' => false, // Important: Allow WPML to filter the results
             ]);
 
+            $current_language = apply_filters('wpml_current_language', null);
             $faqs_data = [];
 
             // Loop through each FAQ post and get the ACF fields
             foreach ($faq_posts as $faq) {
+                // Make sure we're getting ACF fields in the correct language
+                $acf_fields = get_fields($faq->ID);
+
+                // Skip if no ACF fields and add debug info
+                if (empty($acf_fields)) {
+                    // Uncomment for debugging
+                    // error_log("No ACF fields found for FAQ ID: {$faq->ID} in language: {$current_language}");
+                }
+
                 $faq_data = [
-                    'id'            => $faq->ID,
-                    'title'         => $faq->post_title,
-                    'acf_fields'    => get_fields($faq->ID), // Get all ACF fields
+                    'id'         => $faq->ID,
+                    'lang'       => $lang,
+                    'current'    => $current_language,
+                    'title'      => $faq->post_title,
+                    'acf_fields' => $acf_fields ?: [], // Ensure it's at least an empty array
                 ];
 
                 // Add the FAQ data to the result array
@@ -2582,15 +2604,15 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             }
 
             if (count($faqs_data) > 0) {
-                return new WP_REST_Response(array(
+                return new WP_REST_Response([
                     "Success" => true,
                     "data" => $faqs_data
-                ));
+                ]);
             } else {
-                return new WP_REST_Response(array(
+                return new WP_REST_Response([
                     "Success" => false,
-                    "data" => "No FAQs found"
-                ));
+                    "data" => "No FAQs found for language: {$current_language}"
+                ]);
             }
         }
 
