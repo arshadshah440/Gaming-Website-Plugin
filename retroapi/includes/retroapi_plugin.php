@@ -3,6 +3,7 @@
 if (!defined('ABSPATH')) exit;
 
 require_once LPCD_PLUGIN_PATH . 'includes/admin/retroapi_endpoints.php';
+require_once LPCD_PLUGIN_PATH . 'includes/admin/retroapi_endpoint_callbacks.php';
 require_once LPCD_PLUGIN_PATH . 'includes/functionalities/retroapi_acf_customization.php';
 require_once LPCD_PLUGIN_PATH . 'includes/functionalities/retroapi_sku_management.php';
 require_once LPCD_PLUGIN_PATH . 'includes/functionalities/retroapi_image_optimizer.php';
@@ -21,6 +22,7 @@ if (!class_exists('retroapi_plugin')) {
             Advanced_AVIF_Converter::init();
             RetroAPI_Shipping_Methods::init();
             Retroapi_Exchange_Rate_Cron::init();
+            retroapi_acf_customization::init();
 
             add_filter('woocommerce_rest_prepare_product_object', [__CLASS__, 'add_acf_swatch_colors_to_api_response'], 10, 3);
             add_action('woocommerce_after_add_attribute_fields', [__CLASS__, 'custom_add_attribute_type_field']);
@@ -89,6 +91,8 @@ if (!class_exists('retroapi_plugin')) {
 
             $response->data['reviews'] = $reviews;
 
+            // attributes Updates
+
             foreach ($response->data['attributes'] as &$attribute) {
                 $attribute_name = strtolower(str_replace(' ', '-', $attribute['name'])); // Convert to slug format
                 $taxonomy = wc_attribute_taxonomy_name_by_id($attribute['id']);
@@ -122,6 +126,24 @@ if (!class_exists('retroapi_plugin')) {
                         // 'attribute_type' => $attribute_type
                     ];
                 }
+            }
+
+            // updating related id to use actual product data
+            // $related_products_data = [];
+            // if (count($response->data['related_ids']) > 0) {
+            //     foreach ($response->data['related_ids'] as &$related_id) {
+            //         $relatd_data = retroapi_endpoints_callbacks::get_products_by_ids($related_id);
+            //         $related_products_data[] = $relatd_data;
+            //     }
+            //     $response->data['related_ids'] = $related_products_data;
+            // }
+            $variation_details = [];
+            if (count($response->data['variations']) > 0) {
+                foreach ($response->data['variations'] as &$variation) {
+                    $variation_data = self::get_variation_details($variation);
+                    $variation_details[] = $variation_data;
+                }
+                $response->data['variations'] = $variation_details;
             }
 
             return $response;
@@ -214,6 +236,36 @@ if (!class_exists('retroapi_plugin')) {
             }
 
             update_option('retro_custom_attribute_type_' . $taxonomy, $type);
+        }
+        public static function get_variation_details($variation_id)
+        {
+            // Get the variation product object
+            $variation = wc_get_product($variation_id);
+
+            if ($variation && $variation->is_type('variation')) {
+                return [
+
+                    'id'              => $variation_id,
+                    'attributes'      => $variation->get_attributes(),
+                    'regular_price'   => $variation->get_regular_price(),
+                    'sale_price'      => $variation->get_sale_price(),
+                    'current_price'   => $variation->get_price(),
+                    'stock_quantity'  => $variation->get_stock_quantity(),
+                    'stock_status'    => $variation->get_stock_status(),
+                    'managing_stock'  => $variation->managing_stock(),
+                    'backorders'      => $variation->get_backorders(),
+                    'sku'             => $variation->get_sku(),
+                    'weight'          => $variation->get_weight(),
+                    'dimensions'      => [
+                        'length' => $variation->get_length(),
+                        'width'  => $variation->get_width(),
+                        'height' => $variation->get_height(),
+                    ],
+                    'parent_id'       => $variation->get_parent_id(),
+                ];
+            }
+
+            return ['error' => 'Invalid variation ID or not a variation product.'];
         }
     }
 }

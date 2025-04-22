@@ -239,6 +239,13 @@ if (!class_exists('retroapi_create_endpoints')) {
                 'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
             ));
 
+            // get exchange rates
+            register_rest_route('retroapi/v2', '/get_cart_products_details', array(
+                'methods' => 'GET',
+                'callback' => ['retroapi_endpoints_callbacks', 'retrovgame_get_cart_products_details'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
+
             // get list of shipping methods details using id
             register_rest_route('retroapi/v2', '/get_shipping_method_details', array(
                 'methods' => 'GET',

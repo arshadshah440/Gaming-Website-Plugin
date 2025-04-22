@@ -51,7 +51,7 @@ if (!class_exists('retroapi_sku_management')) {
                             $storage = self::get_first_term_of_attribute($variation_id, 'pa_storage');
 
                             // Generate the SKU based on variation attributes and product ID
-                            $sku = $pa_platform . $product_type . $model_variant .$storage . $color . $pa_condition . $post_id;
+                            $sku = $pa_platform . $product_type . $model_variant . $storage . $color . $pa_condition . $post_id;
 
                             // Check if SKU is unique before assigning
                             // Check if SKU is unique before assigning

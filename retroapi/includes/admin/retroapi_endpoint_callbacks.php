@@ -496,6 +496,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
                 $response[] = [
                     'id'          => get_the_ID(),
+                    'slug'        => get_post_field('post_name', get_the_ID()),
                     'title'       => get_the_title(),
                     'date'        => get_the_date(),
                     'featured_image' => get_the_post_thumbnail_url(get_the_ID(), 'full'),
@@ -1026,6 +1027,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                     $sold_this_month = self::retro_sold_counter($product_id);
                     $response_products[] = [
                         'id'             => $product_id,
+                        'slug'           => $product->get_slug(),
                         'product_type'   => $product->get_type(),
                         'name'           => $product->get_name(),
                         'price'          => $price_data,
@@ -1095,6 +1097,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                     // Prepare the product info array
                     $product_info[] = [
                         'id'             => $product_id,
+                        'slug'           => $product->get_slug(),
                         'product_type'   => $product->get_type(),
                         'name'           => $product->get_name(),
                         'price'          => $price_data,
@@ -1424,7 +1427,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             foreach ($product_ids as $product_id) {
                 $product_id = apply_filters('wpml_object_id', $product_id, 'product', true, $lang);
 
-                $current_product_data = self::get_products_by_ids($product_id);
+                $current_product_data = self::get_detailed_products_by_ids($product_id);
                 $products_data[] = $current_product_data;
             };
 
@@ -1441,7 +1444,124 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 ]);
             }
         }
+        // get the cart products details
 
+        public static function retrovgame_get_cart_products_details(WP_REST_Request $request)
+        {
+            $params = $request->get_json_params();
+            $products_input = $params['products'] ?? [];
+
+            $data = [];
+
+            foreach ($products_input as $product_data) {
+                $product_id = $product_data['id'];
+                $variation_id = $product_data['variation_id'] ?? null;
+                $additional_products_ids = $product_data['additional_products'] ?? [];
+                $additional_games_ids = $product_data['additional_games'] ?? [];
+
+                $product = wc_get_product($product_id);
+                if (!$product) continue;
+
+                $product_response = [
+                    'id' => $product->get_id(),
+                    'name' => $product->get_name(),
+                    'slug' => $product->get_slug(),
+                    'type' => $product->get_type(),
+                    'price' => wc_format_decimal($product->get_price()),
+                    'on_sale' => $product->is_on_sale(),
+                    'sale_price' => $product->get_sale_price(),
+                    'regular_price' => $product->get_regular_price(),
+                    'stock_quantity' => $product->get_stock_quantity(),
+                    'images' => [
+                        'id' => get_post_thumbnail_id($product->get_id()),
+                        'src' => get_the_post_thumbnail_url($product->get_id(), 'full'),
+                        'alt' => get_post_meta(get_post_thumbnail_id($product->get_id()), '_wp_attachment_image_alt', true),
+                    ],
+                    'categories' => [],
+                    'description' => wp_kses_post($product->get_description()),
+                ];
+
+                // Images
+
+                // foreach ($product->get_gallery_image_ids() as $image_id) {
+                //     $product_response['images'][] = [
+                //         'id' => get_post_thumbnail_id(),
+                //         'src' => wp_get_attachment_url($image_id),
+                //         'alt' => get_post_meta($image_id, '_wp_attachment_image_alt', true),
+                //     ];
+                // }
+
+                // Categories
+                $term_objects = get_the_terms($product_id, 'product_cat');
+                if (!is_wp_error($term_objects)) {
+                    foreach ($term_objects as $term) {
+                        $product_response['categories'][] = [
+                            'id' => $term->term_id,
+                            'name' => $term->name,
+                            'slug' => $term->slug,
+                        ];
+                    }
+                }
+
+                // Variation
+                if ($variation_id) {
+                    $variation = wc_get_product($variation_id);
+                    if ($variation) {
+                        $product_response['variation'] = [
+                            'id' => $variation->get_id(),
+                            'regular_price' => $variation->get_regular_price(),
+                            'sale_price' => $variation->get_sale_price(),
+                            'current_price' => $variation->get_price(),
+                            'stock_quantity' => $variation->get_stock_quantity(),
+                            'stock_status' => $variation->get_stock_status(),
+                        ];
+                    }
+                }
+
+                // Additional Products
+                $product_response['additionalProducts'] = [];
+                foreach ($additional_products_ids as $id) {
+                    $additional = wc_get_product($id);
+                    if ($additional) {
+                        $product_response['additionalProducts'][] = [
+                            'id' => $additional->get_id(),
+                            'type' => $additional->get_type(),
+                            'name' => $additional->get_name(),
+                            'slug' => $additional->get_slug(),
+                            'price' => $additional->get_price(),
+                            'on_sale' => $additional->is_on_sale(),
+                            'sale_price' => $additional->get_sale_price(),
+                            'regular_price' => $additional->get_regular_price(),
+                        ];
+                    }
+                }
+
+                // Additional Games
+                $product_response['additionalGames'] = [];
+                foreach ($additional_games_ids as $id) {
+                    $additional = wc_get_product($id);
+                    if ($additional) {
+                        $product_response['additionalGames'][] = [
+                            'id' => $additional->get_id(),
+                            'type' => $additional->get_type(),
+                            'name' => $additional->get_name(),
+                            'slug' => $additional->get_slug(),
+                            'price' => $additional->get_price(),
+                            'on_sale' => $additional->is_on_sale(),
+                            'sale_price' => $additional->get_sale_price(),
+                            'regular_price' => $additional->get_regular_price(),
+                        ];
+                    }
+                }
+
+                $data[] = $product_response;
+            }
+
+            return rest_ensure_response([
+                'success' => true,
+                'data' => $data
+            ]);
+        }
         // get filters data like term 
 
         public static function retrovgame_get_terms(WP_REST_Request $request)
@@ -1758,6 +1878,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
                         $product_list[] = [
                             'id'             => $related_id,
+                            'slug'           => $product->get_slug(),
                             'product_type'   => $product->get_type(),
                             'name'           => $product->get_name(),
                             'price'          => $price_data,
@@ -1886,7 +2007,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             }
             return $fields;
         }
-        private static function get_products_by_ids($product_ids)
+        public static function get_products_by_ids($product_ids)
         {
             global $product;
 
@@ -1953,12 +2074,133 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             }
             return [];
         }
+        public static function get_detailed_products_by_ids($product_ids)
+        {
+            global $product;
+
+            $related_id = $product_ids;
+            $product = wc_get_product($product_ids);
+
+            if ($product) {
+                $featured_image = wp_get_attachment_image_src(get_post_thumbnail_id($related_id), 'full');
+
+                // Fetch reviews
+                $comments = get_comments(['post_id' => $related_id, 'type' => 'review']);
+                $total_reviews = count($comments);
+
+                // Calculate total ratings
+                $total_rating = 0;
+                foreach ($comments as $comment) {
+                    $rating = get_comment_meta($comment->comment_ID, 'rating', true);
+                    if ($rating) {
+                        $total_rating += (int)$rating;
+                    }
+                }
+
+                // Fetch product URL
+                $product_url = get_permalink($related_id);
+
+                // Fetch assigned categories
+                $categories = get_the_terms($related_id, 'product_cat');
+                $category_names = [];
+                if (!empty($categories) && !is_wp_error($categories)) {
+                    foreach ($categories as $category) {
+                        $category_names[] = $category->name;
+                    }
+                }
+
+                // Fetch price details
+                $price_data = [];
+                $variation_details = [];
+
+                if ($product->is_type('variable')) {
+                    // Get price range for variable products
+                    $price_data['min_price'] = $product->get_variation_price('min');
+                    $price_data['max_price'] = $product->get_variation_price('max');
+
+                    // Get all variation objects
+                    $variation_ids = $product->get_children();
+                    foreach ($variation_ids as $variation_id) {
+                        $variation = wc_get_product($variation_id);
+                        if ($variation && $variation->exists()) {
+                            $variation_details[] = [
+                                'id'              => $variation->get_id(),
+                                'attributes'      => $variation->get_attributes(),
+                                'regular_price'   => $variation->get_regular_price(),
+                                'sale_price'      => $variation->get_sale_price(),
+                                'current_price'   => $variation->get_price(),
+                                'stock_quantity'  => $variation->get_stock_quantity(),
+                                'stock_status'    => $variation->get_stock_status(),
+                                'managing_stock'  => $variation->managing_stock(),
+                                'backorders'      => $variation->get_backorders(),
+                                'sku'             => $variation->get_sku(),
+                                'weight'          => $variation->get_weight(),
+                                'dimensions'      => [
+                                    'length' => $variation->get_length(),
+                                    'width'  => $variation->get_width(),
+                                    'height' => $variation->get_height(),
+                                ],
+                                'parent_id'       => $variation->get_parent_id(),
+                            ];
+                        }
+                    }
+                } else {
+                    // Get regular and sale price for simple products
+                    $price_data['regular_price'] = $product->get_regular_price();
+                    $price_data['sale_price'] = $product->get_sale_price();
+                }
+
+                $attributes_list = self::get_product_attributes_array($product_ids);
+                $sold_this_month = self::retro_sold_counter($product_ids);
+
+                $connected_products = get_post_meta($product_ids, 'connected_products', true);
+                $add_a_game = get_post_meta($product_ids, 'add_a_game', true);
+
+                $product_data = [
+                    'id'                 => $product_ids,
+                    'slug'               => $product->get_slug(),
+                    'product_type'       => $product->get_type(),
+                    'name'               => $product->get_name(),
+                    'price'              => $price_data,
+                    'description'        => $product->get_description(),
+                    'product_url'        => $product_url,
+                    'categories'         => $category_names,
+                    'featured_image'     => $featured_image ? $featured_image[0] : null,
+                    'total_reviews'      => $total_reviews,
+                    'total_rating'       => $total_reviews > 0 ? $total_rating : null,
+                    'stock_quantity'     => $product->get_stock_quantity(),
+                    'attributes'         => $attributes_list,
+                    'sold_this_month'    => $sold_this_month,
+                    'connected_products' => $connected_products,
+                    'add_a_game'         => $add_a_game,
+                ];
+
+                if (!empty($variation_details)) {
+                    $product_data['variations'] = $variation_details;
+                }
+
+                return $product_data;
+            }
+
+            return [];
+        }
+
 
         /** get the categories details by id */
 
         public static function retrovgame_get_category_details_by_id(WP_REST_Request $request)
         {
             $categoryid = $request->get_param('category_id');
+            $category_slug = $request->get_param('category_slug');
+
+            if (empty($categoryid) && empty($category_slug)) {
+                return new WP_Error('Invalid category', array('status' => 500));
+            }
+
+            if (!empty($category_slug)) {
+                $categoryid = get_term_by('slug', $category_slug, 'product_cat')->term_id;
+            }
+
             $lang = $request->get_param('lang') ?: apply_filters('wpml_default_language', null);
 
             if (empty($categoryid) ||  empty(get_the_category_by_ID($categoryid))) {
@@ -2786,6 +3028,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 $response[] = array(
                     'id'          => $term->term_id,
                     'name'        => $term->name,
+                    'slug'        => $term->slug,
                     'description' => $term->description,
                     'acf'         => $acf_fields,
                 );
