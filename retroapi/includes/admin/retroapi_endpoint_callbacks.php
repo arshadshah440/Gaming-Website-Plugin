@@ -1450,6 +1450,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
         {
             $params = $request->get_json_params();
             $products_input = $params['products'] ?? [];
+            $coupon_code = $params['coupon_code'] ?? null;
 
             $data = [];
 
@@ -1473,9 +1474,11 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                     'regular_price' => $product->get_regular_price(),
                     'stock_quantity' => $product->get_stock_quantity(),
                     'images' => [
+                        [
                         'id' => get_post_thumbnail_id($product->get_id()),
                         'src' => get_the_post_thumbnail_url($product->get_id(), 'full'),
                         'alt' => get_post_meta(get_post_thumbnail_id($product->get_id()), '_wp_attachment_image_alt', true),
+                        ]
                     ],
                     'categories' => [],
                     'description' => wp_kses_post($product->get_description()),
@@ -1559,9 +1562,84 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
             return rest_ensure_response([
                 'success' => true,
-                'data' => $data
+                'data' => $data,
+                'coupon' => self::get_coupon_data_by_code($coupon_code)
             ]);
         }
+        /**
+         * Get the complete coupon object by coupon code.
+         *
+         * @param string $coupon_code The coupon code.
+         * @return WC_Coupon|false The coupon object or false if not found.
+         */
+        public static function get_coupon_data_by_code($coupon_code)
+        {
+            if (! class_exists('WC_Coupon')) {
+                return false;
+            }
+
+            try {
+                $coupon = new WC_Coupon($coupon_code);
+
+                if (! $coupon->get_id()) {
+                    return false;
+                }
+
+                $id = $coupon->get_id();
+                $base_url = get_rest_url(null, 'wc/v3/coupons/' . $id);
+
+                return [
+                    'id' => $id,
+                    'code' => $coupon->get_code(),
+                    'amount' => $coupon->get_amount(),
+                    'status' => get_post_status($coupon->get_id()),
+                    'date_created' => $coupon->get_date_created() ? $coupon->get_date_created()->date('c') : null,
+                    'date_created_gmt' => $coupon->get_date_created() ? $coupon->get_date_created()->date('c') : null,
+                    'date_modified' => $coupon->get_date_modified() ? $coupon->get_date_modified()->date('c') : null,
+                    'date_modified_gmt' => $coupon->get_date_modified() ? $coupon->get_date_modified()->date('c') : null,
+                    'discount_type' => $coupon->get_discount_type(),
+                    'description' => $coupon->get_description(),
+                    'date_expires' => $coupon->get_date_expires() ? $coupon->get_date_expires()->date('c') : null,
+                    'date_expires_gmt' => $coupon->get_date_expires() ? $coupon->get_date_expires()->date('c') : null,
+                    'usage_count' => $coupon->get_usage_count(),
+                    'individual_use' => $coupon->get_individual_use(),
+                    'product_ids' => $coupon->get_product_ids(),
+                    'excluded_product_ids' => $coupon->get_excluded_product_ids(),
+                    'usage_limit' => $coupon->get_usage_limit(),
+                    'usage_limit_per_user' => $coupon->get_usage_limit_per_user(),
+                    'limit_usage_to_x_items' => $coupon->get_limit_usage_to_x_items(),
+                    'free_shipping' => $coupon->get_free_shipping(),
+                    'product_categories' => $coupon->get_product_categories(),
+                    'excluded_product_categories' => $coupon->get_excluded_product_categories(),
+                    'exclude_sale_items' => $coupon->get_exclude_sale_items(),
+                    'minimum_amount' => $coupon->get_minimum_amount(),
+                    'maximum_amount' => $coupon->get_maximum_amount(),
+                    'email_restrictions' => $coupon->get_email_restrictions(),
+                    'used_by' => $coupon->get_used_by(),
+                    'meta_data' => array_map(function ($meta) {
+                        return [
+                            'id' => $meta->id,
+                            'key' => $meta->key,
+                            'value' => $meta->value,
+                        ];
+                    }, $coupon->get_meta_data()),
+                    '_links' => [
+                        'self' => [[
+                            'href' => $base_url,
+                            'targetHints' => [
+                                'allow' => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+                            ]
+                        ]],
+                        'collection' => [[
+                            'href' => get_rest_url(null, 'wc/v3/coupons')
+                        ]],
+                    ],
+                ];
+            } catch (Exception $e) {
+                return ['error' => $e->getMessage()];
+            }
+        }
+
         // get filters data like term 
 
         public static function retrovgame_get_terms(WP_REST_Request $request)
@@ -2605,21 +2683,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             }
 
             // Gather coupon details
-            $coupon_details = [
-                'id'               => $coupon->get_id(),
-                'code'             => $coupon->get_code(),
-                'discount_type'    => $coupon->get_discount_type(),
-                'amount'           => $coupon->get_amount(),
-                'description'      => $coupon->get_description(),
-                'usage_count'      => $coupon->get_usage_count(),
-                'usage_limit'      => $coupon->get_usage_limit(),
-                'usage_limit_per_user' => $coupon->get_usage_limit_per_user(),
-                'expiry_date'      => $coupon->get_date_expires() ? $coupon->get_date_expires()->date('Y-m-d') : null,
-                'individual_use'   => $coupon->get_individual_use(),
-                'product_ids'      => $coupon->get_product_ids(),
-                'exclude_product_ids' => $coupon->get_excluded_product_ids(),
-                'free_shipping'    => $coupon->get_free_shipping(),
-            ];
+            $coupon_details = self::get_coupon_data_by_code($coupon_code);
 
             // Prepare response
             $response_data = array(
@@ -2966,6 +3030,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                 'related_posts' => $related_posts, // Include related posts in the response
             ), 200);
         }
+
 
 
         //get website contact details
@@ -3463,12 +3528,14 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
 
             // Get block editor styles (CSS)
             $block_css = self::custom_get_gutenberg_styles();
+            $acf_fields = function_exists('get_fields') ? get_fields($post->ID) : [];
 
             return rest_ensure_response(array(
                 'id'      => $post->ID,
                 'title'   => get_the_title($post),
                 'html'    => $html_content,
-                'css'     => $block_css
+                'css'     => $block_css,
+                'acf'     => $acf_fields
             ));
         }
         /**

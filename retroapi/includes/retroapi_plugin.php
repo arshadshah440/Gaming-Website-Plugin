@@ -30,6 +30,7 @@ if (!class_exists('retroapi_plugin')) {
             // Save field on Add Attribute
             add_action('woocommerce_attribute_added', [__CLASS__, 'save_retro_custom_attribute_type'], 10, 2);
 
+
             // Save field on Edit Attribute
             add_action('woocommerce_attribute_updated', [__CLASS__, 'save_retro_custom_attribute_type'], 10, 3);
             // RetroAPI_Tax_Fields::init();
@@ -76,7 +77,7 @@ if (!class_exists('retroapi_plugin')) {
         {
             retroapi_endpoints::retroapi_init_endpoints();
         }
-
+      
         public static function add_acf_swatch_colors_to_api_response($response, $object, $request)
         {
             if (empty($response->data['attributes'])) {

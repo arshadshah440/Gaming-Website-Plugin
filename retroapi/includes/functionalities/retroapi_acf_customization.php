@@ -113,16 +113,16 @@ if (!class_exists('retroapi_acf_customization')) {
                     }
                 }
                 // Fetch price details
-                $price_data = [];
-                if ($product->is_type('variable')) {
-                    // Get price range for variable products
-                    $price_data['min_price'] = $product->get_variation_price('min');
-                    $price_data['max_price'] = $product->get_variation_price('max');
-                } else {
-                    // Get regular and sale price for simple products
-                    $price_data['regular_price'] = $product->get_regular_price();
-                    $price_data['sale_price'] = $product->get_sale_price();
-                }
+                // $price_data = [];
+                // if ($product->is_type('variable')) {
+                //     // Get price range for variable products
+                //     $price_data['min_price'] = $product->get_variation_price('min');
+                //     $price_data['max_price'] = $product->get_variation_price('max');
+                // } else {
+                //     // Get regular and sale price for simple products
+                //     $price_data['regular_price'] = $product->get_regular_price();
+                //     $price_data['sale_price'] = $product->get_sale_price();
+                // }
                 $attributes_list = self::get_product_attributes_array($product_ids);
                 // $sold_this_month = self::retro_sold_counter($product_ids);
 
@@ -132,7 +132,10 @@ if (!class_exists('retroapi_acf_customization')) {
                     'slug'           => $product->get_slug(),
                     'product_type'   => $product->get_type(),
                     'name'           => $product->get_name(),
-                    'price'          => $price_data,
+                    'price' => wc_format_decimal($product->get_price()),
+                    'on_sale' => $product->is_on_sale(),
+                    'sale_price' => $product->get_sale_price(),
+                    'regular_price' => $product->get_regular_price(),
                     'product_url'    => $product_url,
                     // 'categories'     => $category_names,
                     // // 'featured_image' => $featured_image ? $featured_image[0] : null,
