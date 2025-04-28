@@ -23,6 +23,17 @@ if (!class_exists('retroapi_plugin')) {
             RetroAPI_Shipping_Methods::init();
             Retroapi_Exchange_Rate_Cron::init();
             retroapi_acf_customization::init();
+            $products = get_posts([
+                'post_type' => 'product',
+                'posts_per_page' => -1,
+                'fields' => 'ids',
+            ]);
+
+            foreach ($products as $product_id) {
+                delete_post_meta($product_id, 'seo_fields');
+                delete_post_meta($product_id, 'seo_fields_meta_title');
+                delete_post_meta($product_id, 'seo_fields_meta_description');
+            }
 
             add_filter('woocommerce_rest_prepare_product_object', [__CLASS__, 'add_acf_swatch_colors_to_api_response'], 10, 3);
             add_action('woocommerce_after_add_attribute_fields', [__CLASS__, 'custom_add_attribute_type_field']);
@@ -77,7 +88,7 @@ if (!class_exists('retroapi_plugin')) {
         {
             retroapi_endpoints::retroapi_init_endpoints();
         }
-      
+
         public static function add_acf_swatch_colors_to_api_response($response, $object, $request)
         {
             if (empty($response->data['attributes'])) {
@@ -138,6 +149,8 @@ if (!class_exists('retroapi_plugin')) {
             //     }
             //     $response->data['related_ids'] = $related_products_data;
             // }
+            $seo_fields = get_field("seo_meta_fields", $response->data['id']);
+            $response->data['seo_fields'] = $seo_fields;
             $variation_details = [];
             if (count($response->data['variations']) > 0) {
                 foreach ($response->data['variations'] as &$variation) {

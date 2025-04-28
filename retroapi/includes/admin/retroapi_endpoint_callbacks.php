@@ -1030,6 +1030,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                         'slug'           => $product->get_slug(),
                         'product_type'   => $product->get_type(),
                         'name'           => $product->get_name(),
+                        'on_sale'     => $product->is_on_sale(),
                         'price'          => $price_data,
                         'description'    => $product->get_description(),
                         'product_url'    => $product_url,
@@ -1100,6 +1101,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                         'slug'           => $product->get_slug(),
                         'product_type'   => $product->get_type(),
                         'name'           => $product->get_name(),
+                        'on_sale'     => $product->is_on_sale(),
                         'price'          => $price_data,
                         'description'    => $product->get_description(),
                         'product_url'    => $product_url,
@@ -1230,12 +1232,19 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                         $price_data['regular_price'] = $product->get_regular_price();
                         $price_data['sale_price'] = $product->get_sale_price();
                     }
+                    $status = get_post_status($result->ID);
+                    if ($status === 'publish') {
 
-                    $products[] = [
-                        'id'    => $product->get_id(),
-                        'name'  => $product->get_name(),
-                        'price'          => $price_data,
-                    ];
+                        $products[] = [
+                            'id'    => $product->get_id(),
+                            'name'  => $product->get_name(),
+                            'slug' =>   $product->get_slug(),
+                            'featured_img' => get_the_post_thumbnail_url($product->get_id(), 'full'),
+                            'price'          => $price_data,
+                            'status' => $status
+                        ];
+
+                    }
                 }
             }
 
@@ -1475,9 +1484,9 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                     'stock_quantity' => $product->get_stock_quantity(),
                     'images' => [
                         [
-                        'id' => get_post_thumbnail_id($product->get_id()),
-                        'src' => get_the_post_thumbnail_url($product->get_id(), 'full'),
-                        'alt' => get_post_meta(get_post_thumbnail_id($product->get_id()), '_wp_attachment_image_alt', true),
+                            'id' => get_post_thumbnail_id($product->get_id()),
+                            'src' => get_the_post_thumbnail_url($product->get_id(), 'full'),
+                            'alt' => get_post_meta(get_post_thumbnail_id($product->get_id()), '_wp_attachment_image_alt', true),
                         ]
                     ],
                     'categories' => [],
@@ -1692,7 +1701,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             $condition = $request->get_param('condition') ? array_map('sanitize_text_field', (array) $request->get_param('condition')) : [];
             $genre = $request->get_param('genre') ? array_map('sanitize_text_field', (array) $request->get_param('genre')) : [];
             $players = $request->get_param('players') ? array_map('sanitize_text_field', (array) $request->get_param('players')) : [];
-            $product_type = $request->get_param('product-type') ? array_map('intval', (array) $request->get_param('product-type')) : [];
+            $product_type = $request->get_param('product-type') ? array_map('sanitize_text_field', (array) $request->get_param('product-type')) : [];
             $category = $request->get_param('category') ? array_map('sanitize_text_field', (array) $request->get_param('category')) : [];
             $paged = $request->get_param('page') ? intval($request->get_param('page')) : 1;
             $products_per_page = $request->get_param('products_per_page') ? intval($request->get_param('products_per_page')) : 8;
@@ -1796,12 +1805,43 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
             }
 
             if (!empty($product_type)) {
-                $optional_tax_queries[] = [
-                    'taxonomy' => 'pa_product-type',
-                    'field'    => 'id',
-                    'terms'    => $product_type,
-                    'operator' => 'IN',
-                ];
+                $product_type_terms = [];
+                $numeric_types = [];
+                $name_types = [];
+                
+                // Separate numeric IDs from name strings
+                foreach ($product_type as $type) {
+                    if (is_numeric($type)) {
+                        $numeric_types[] = intval($type);
+                    } else {
+                        $name_types[] = $type;
+                    }
+                }
+                
+                // Add any term IDs we found
+                if (!empty($numeric_types)) {
+                    $product_type_terms = array_merge($product_type_terms, $numeric_types);
+                }
+                
+                // Look up any terms by name and add their IDs
+                if (!empty($name_types)) {
+                    foreach ($name_types as $type_name) {
+                        $term = get_term_by('name', $type_name, 'pa_product-type');
+                        if ($term && !is_wp_error($term)) {
+                            $product_type_terms[] = $term->term_id;
+                        }
+                    }
+                }
+                
+                // Only add the tax query if we found valid terms
+                if (!empty($product_type_terms)) {
+                    $optional_tax_queries[] = [
+                        'taxonomy' => 'pa_product-type',
+                        'field'    => 'id',
+                        'terms'    => $product_type_terms,
+                        'operator' => 'IN',
+                    ];
+                }
             }
 
             // If optional filters exist, add them with OR relation
@@ -2136,6 +2176,7 @@ if (!class_exists('retroapi_endpoints_callbacks')) {
                     'slug'           => $product->get_slug(),
                     'product_type'   => $product->get_type(),
                     'name'           => $product->get_name(),
+                    'on_sale'     => $product->is_on_sale(),
                     'price'          => $price_data,
                     'description'    => $product->get_description(),
                     'product_url'    => $product_url,

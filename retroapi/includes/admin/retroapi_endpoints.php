@@ -18,6 +18,15 @@ if (!class_exists('retroapi_endpoints')) {
         }
         public static function retroapi_register_endpoints() {
             retroapi_create_endpoints::retroapi_init_endpoints();  
+            register_rest_field('product', 'acf', [
+                'get_callback' => function ($object) {
+                    $fields = get_fields($object['id']);
+                    unset($fields['seo_meta_fields']); // Strip the group entirely
+                    return $fields;
+                },
+                'schema' => null,
+            ]);
+        
         }
     }
 }
