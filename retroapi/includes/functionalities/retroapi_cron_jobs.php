@@ -7,7 +7,7 @@ if (!defined('ABSPATH')) {
 class Retroapi_Exchange_Rate_Cron
 {
     // List of currencies to track
-    private static $currencies = ['USD','JPY', 'GBP', 'MXN', 'AUD', 'NZD', 'CAD', 'CHF'];
+    private static $currencies = ['USD','JPY', 'GBP', 'MXN', 'AUD', 'NZD', 'CAD', 'CHF', 'EUR', 'AED', 'THB'];
 
     /**
      * Entry point - called from outside

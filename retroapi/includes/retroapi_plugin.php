@@ -23,6 +23,12 @@ if (!class_exists('retroapi_plugin')) {
             RetroAPI_Shipping_Methods::init();
             Retroapi_Exchange_Rate_Cron::init();
             retroapi_acf_customization::init();
+
+            add_action('woocommerce_rest_insert_order', function ($order, $request) {
+                $order->calculate_totals(); // This calculates taxes, shipping, etc.
+                $order->save();
+            }, 10, 2);
+
             $products = get_posts([
                 'post_type' => 'product',
                 'posts_per_page' => -1,
@@ -255,12 +261,18 @@ if (!class_exists('retroapi_plugin')) {
         {
             // Get the variation product object
             $variation = wc_get_product($variation_id);
+            $thumbnail_id = get_post_thumbnail_id( $variation_id );
+            $thumbnail_url="";
+            if ( $thumbnail_id ) {
+                $thumbnail_url = wp_get_attachment_url( $thumbnail_id );
+            }
 
             if ($variation && $variation->is_type('variation')) {
                 return [
 
                     'id'              => $variation_id,
                     'attributes'      => $variation->get_attributes(),
+                    'on_sale'         => $variation->is_on_sale(),
                     'regular_price'   => $variation->get_regular_price(),
                     'sale_price'      => $variation->get_sale_price(),
                     'current_price'   => $variation->get_price(),
@@ -276,6 +288,7 @@ if (!class_exists('retroapi_plugin')) {
                         'height' => $variation->get_height(),
                     ],
                     'parent_id'       => $variation->get_parent_id(),
+                    'thumbnail' => $thumbnail_url
                 ];
             }
 

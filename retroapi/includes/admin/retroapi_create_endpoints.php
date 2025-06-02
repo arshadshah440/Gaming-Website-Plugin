@@ -40,13 +40,202 @@ if (!class_exists('retroapi_create_endpoints')) {
                 'callback' => ['retroapi_endpoints_callbacks', 'get_testimonials_data'],
                 'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
             ));
-            // Register the API endpoint for product filteration
+            // Register the API endpoint for Customer Login
             register_rest_route('retroapi/v2', '/filter_products', array(
                 'methods' => 'GET',
                 'callback' => ['retroapi_endpoints_callbacks', 'filter_products_api_callback'],
                 'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
             ));
-
+            // Register the API endpoint for Customer Login
+            register_rest_route('retroapi/v2', '/filter_price_range', array(
+                'methods' => 'GET',
+                'callback' => ['retroapi_endpoints_callbacks', 'get_price_range_api_callback'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
+            // Register the API endpoint for product filteration
+            register_rest_route('retroapi/v2', '/user_login', array(
+                'methods' => 'GET',
+                'callback' => ['retroapi_endpoints_callbacks', 'authenticate_user_and_get_details'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
+            // Register the API endpoint for product filteration
+            register_rest_route('retroapi/v2', '/user_login_remember', array(
+                'methods' => 'GET',
+                'callback' => ['retroapi_endpoints_callbacks', 'secure_login_and_get_user_data'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
+            // User Registration Endpoint
+            register_rest_route('retroapi/v2', '/user_register', array(
+                'methods' => 'POST',
+                'callback' => ['retroapi_endpoints_callbacks', 'register_user_with_profile'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
+            // Alternative update endpoint without user_id in URL
+            register_rest_route('retroapi/v2', '/user_profile', array(
+                'methods' => 'PUT',
+                'callback' => ['retroapi_endpoints_callbacks', 'update_user_profile'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
+            // Get User Profile Endpoint
+            register_rest_route('retroapi/v2', '/user_profile/(?P<user_id>\d+)', array(
+                'methods' => 'GET',
+                'callback' => ['retroapi_endpoints_callbacks', 'get_user_profile'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+                'args' => array(
+                    'user_id' => array(
+                        'required' => true,
+                        'validate_callback' => function($param, $request, $key) {
+                            return is_numeric($param);
+                        }
+                    ),
+                ),
+            ));
+            // Get User Orders Endpoint (My Orders)
+            register_rest_route('retroapi/v2', '/user_orders/(?P<user_id>\d+)', array(
+                'methods' => 'GET',
+                'callback' => ['retroapi_endpoints_callbacks', 'get_user_orders'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+                'args' => array(
+                    'user_id' => array(
+                        'required' => true,
+                        'validate_callback' => function($param, $request, $key) {
+                            return is_numeric($param);
+                        }
+                    ),
+                    'per_page' => array(
+                        'default' => 10,
+                        'validate_callback' => function($param, $request, $key) {
+                            return is_numeric($param) && $param > 0;
+                        }
+                    ),
+                    'page' => array(
+                        'default' => 1,
+                        'validate_callback' => function($param, $request, $key) {
+                            return is_numeric($param) && $param > 0;
+                        }
+                    ),
+                    'status' => array(
+                        'default' => 'any',
+                        'validate_callback' => function($param, $request, $key) {
+                            $valid_statuses = array('any', 'pending', 'processing', 'on-hold', 'completed', 'cancelled', 'refunded', 'failed', 'trash');
+                            return in_array($param, $valid_statuses);
+                        }
+                    ),
+                ),
+            ));
+            // Get Order Details Endpoint
+            register_rest_route('retroapi/v2', '/order_details', array(
+                'methods' => 'GET',
+                'callback' => ['retroapi_endpoints_callbacks', 'get_order_details'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+                'args' => array(
+                    'order_id' => array(
+                        'required' => true,
+                        'validate_callback' => function($param, $request, $key) {
+                            return is_numeric($param);
+                        }
+                    ),
+                ),
+            ));
+            // Send Email Endpoint
+            register_rest_route('retroapi/v2', '/send_email', array(
+                'methods' => 'POST',
+                'callback' => ['retroapi_endpoints_callbacks', 'send_email'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+                'args' => array(
+                    'to_email' => array(
+                        'required' => true,
+                        'validate_callback' => function($param, $request, $key) {
+                            return is_email($param);
+                        },
+                        'sanitize_callback' => 'sanitize_email',
+                    ),
+                    'subject' => array(
+                        'required' => true,
+                        'validate_callback' => function($param, $request, $key) {
+                            return !empty(trim($param)) && strlen($param) <= 200;
+                        },
+                        'sanitize_callback' => 'sanitize_text_field',
+                    ),
+                    'message' => array(
+                        'required' => true,
+                        'validate_callback' => function($param, $request, $key) {
+                            return !empty(trim($param));
+                        },
+                        'sanitize_callback' => 'wp_kses_post',
+                    ),
+                    'from_email' => array(
+                        'required' => false,
+                        'default' => 'help@retrofam.com',
+                        'validate_callback' => function($param, $request, $key) {
+                            return empty($param) || is_email($param);
+                        },
+                        'sanitize_callback' => 'sanitize_email',
+                    ),
+                    'from_name' => array(
+                        'required' => false,
+                        'default' => 'RetroFam Help',
+                        'validate_callback' => function($param, $request, $key) {
+                            return empty($param) || strlen($param) <= 100;
+                        },
+                        'sanitize_callback' => 'sanitize_text_field',
+                    ),
+                    'reply_to' => array(
+                        'required' => false,
+                        'default' => 'help@retrofam.com',
+                        'validate_callback' => function($param, $request, $key) {
+                            return empty($param) || is_email($param);
+                        },
+                        'sanitize_callback' => 'sanitize_email',
+                    ),
+                    'cc' => array(
+                        'required' => false,
+                        'validate_callback' => function($param, $request, $key) {
+                            if (empty($param)) return true;
+                            if (is_array($param)) {
+                                foreach ($param as $email) {
+                                    if (!is_email($email)) return false;
+                                }
+                                return true;
+                            }
+                            return is_email($param);
+                        },
+                    ),
+                    'bcc' => array(
+                        'required' => false,
+                        'validate_callback' => function($param, $request, $key) {
+                            if (empty($param)) return true;
+                            if (is_array($param)) {
+                                foreach ($param as $email) {
+                                    if (!is_email($email)) return false;
+                                }
+                                return true;
+                            }
+                            return is_email($param);
+                        },
+                    ),
+                    'content_type' => array(
+                        'required' => false,
+                        'default' => 'text/html',
+                        'validate_callback' => function($param, $request, $key) {
+                            return in_array($param, ['text/html', 'text/plain']);
+                        },
+                    ),
+                    'attachments' => array(
+                        'required' => false,
+                        'validate_callback' => function($param, $request, $key) {
+                            if (empty($param)) return true;
+                            if (!is_array($param)) return false;
+                            foreach ($param as $attachment) {
+                                if (!is_numeric($attachment) && !filter_var($attachment, FILTER_VALIDATE_URL)) {
+                                    return false;
+                                }
+                            }
+                            return true;
+                        },
+                    ),
+                ),
+            ));
             // Register the API endpoint for viewed products by user storing
             register_rest_route('retroapi/v2', '/set_user_viewed_products', array(
                 'methods' => 'POST',
@@ -301,6 +490,13 @@ if (!class_exists('retroapi_create_endpoints')) {
             register_rest_route('retroapi/v2', '/get_shipping_methods_using_countrycode/(?P<country>\w+)', array(
                 'methods' => 'GET',
                 'callback' => ['retroapi_endpoints_callbacks', 'retrovgame_get_shipping_methods_using_countrycode'],
+                'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
+            ));
+
+            // get Meta Tags details
+            register_rest_route('retroapi/v2', '/get_meta_tags', array(
+                'methods' => 'GET',
+                'callback' => ['retroapi_endpoints_callbacks', 'retrovgame_get_meta_tags'],
                 'permission_callback' => ["retroapi_create_endpoints", "set_authentication_token"],
             ));
         }
